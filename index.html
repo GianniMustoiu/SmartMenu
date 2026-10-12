@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f5c4a">
+<meta name="robots" content="noindex">
+<title>MenuPro</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;700;800&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<noscript><p style="padding:24px;font-family:sans-serif">MenuPro richiede JavaScript per funzionare.</p></noscript>
+
+<!-- ===== 1. ADMIN ===== -->
+<div id="adminGate" class="login" hidden>
+  <form id="adminForm" class="login-box">
+    <span class="logo big">M</span>
+    <h1>MenuPro Admin</h1>
+    <p class="muted" id="adminGateMsg"></p>
+    <label for="adminPw">Password</label>
+    <input id="adminPw" name="password" type="password" required minlength="4" autocomplete="current-password">
+    <div id="adminConfirm" hidden>
+      <label for="adminPw2">Ripeti la password</label>
+      <input id="adminPw2" name="confirm" type="password" minlength="4" autocomplete="new-password">
+    </div>
+    <p class="err" id="adminErr" role="alert"></p>
+    <button class="btn wide" type="submit" id="adminBtn">Accedi</button>
+  </form>
+</div>
+
+<div id="adminApp" class="app" hidden>
+  <aside class="sidebar">
+    <div class="brand"><span class="logo">M</span><span class="bn">MenuPro</span><small>Admin</small></div>
+    <nav id="nav" aria-label="Sezioni">
+      <button data-view="dashboard" class="active"><i data-ic="home"></i><span>Panoramica</span></button>
+      <button data-view="ristoranti"><i data-ic="store"></i><span>Ristoranti</span></button>
+      <button data-view="abbonamenti"><i data-ic="card"></i><span>Abbonamenti</span></button>
+      <button data-view="menu"><i data-ic="book"></i><span>Menù e prezzi</span></button>
+      <button data-view="impostazioni"><i data-ic="settings"></i><span>Impostazioni</span></button>
+    </nav>
+    <div class="side-foot" id="sideLinks"></div>
+  </aside>
+  <main class="main">
+    <header class="topbar">
+      <h1 id="title">Panoramica</h1>
+      <div id="actions"></div>
+    </header>
+    <section id="view"></section>
+  </main>
+</div>
+
+<!-- ===== 2. RISTORATORE ===== -->
+<div id="restApp" hidden>
+  <div id="restLogin" class="login" hidden>
+    <form id="loginForm" class="login-box">
+      <span class="logo big">M</span>
+      <h1>MenuPro</h1>
+      <p class="muted">Accedi all'area del tuo ristorante</p>
+      <label for="lEmail">Email</label>
+      <input id="lEmail" name="email" type="email" required autocomplete="username">
+      <label for="lPw">Password</label>
+      <input id="lPw" name="password" type="password" required autocomplete="current-password">
+      <p class="err" id="loginErr" role="alert"></p>
+      <button class="btn wide" type="submit">Accedi</button>
+      <p class="muted hint">Non hai un account? Te lo crea l'amministratore.</p>
+      <p class="muted hint" id="demoHint" hidden></p>
+    </form>
+  </div>
+  <div id="restPanel" class="app" hidden>
+    <aside class="sidebar">
+      <div class="brand" id="rBrand"></div>
+      <nav id="rNav" aria-label="Sezioni">
+        <button data-rview="ordini" class="active"><i data-ic="orders"></i><span>Ordini</span><em class="pill" hidden></em></button>
+        <button data-rview="tavoli"><i data-ic="grid"></i><span>Tavoli e QR</span></button>
+        <button data-rview="menu"><i data-ic="book"></i><span>Menù e prezzi</span></button>
+        <button data-rview="stats"><i data-ic="chart"></i><span>Statistiche</span></button>
+        <button data-rview="impostazioni"><i data-ic="settings"></i><span>Impostazioni</span></button>
+      </nav>
+      <div class="side-foot" id="rSideLinks"></div>
+    </aside>
+    <main class="main">
+      <header class="topbar">
+        <h1 id="rTitle">Ordini</h1>
+        <div id="rActions"></div>
+      </header>
+      <section id="rView"></section>
+    </main>
+  </div>
+</div>
+
+<!-- ===== 3. CLIENTE (telefono, solo da QR) ===== -->
+<div id="clientApp" hidden></div>
+
+<!-- Finestra di dialogo, notifiche e import backup -->
+<div class="modal-bg" id="modalBg" hidden>
+  <form class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <h2 id="modalTitle"></h2>
+    <div id="modalBody"></div>
+    <div class="modal-actions">
+      <button type="button" class="btn ghost" id="modalCancel">Annulla</button>
+      <button type="submit" class="btn" id="modalSave">Salva</button>
+    </div>
+  </form>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<input type="file" id="importFile" accept="application/json" hidden>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="script.js"></script>
+</body>
+</html>
