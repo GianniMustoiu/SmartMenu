@@ -3,6 +3,10 @@
    I dati stanno nel localStorage del browser: per usarlo
    tra dispositivi diversi serve un database online.
    ===================================================== */
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script src="script.js"></script>
 const KEY = 'menupro_admin_v1';          // stessa chiave della versione precedente: i dati restano
 const THEME_KEY = 'menupro_theme';
 const $ = s => document.querySelector(s);
@@ -1419,6 +1423,7 @@ document.addEventListener('keydown', e => {
   if (!$('#modalBg').hidden) closeModal();
   else if (cOpen && location.hash.startsWith('#/c/')) { cOpen = null; cDish = null; cBanner = ''; refresh(); }
 });
+sb.from('piano').select('*').then(r => console.log('Supabase:', r));
 
 /* ===== Avvio ===== */
 (async () => { hydrateIcons(); await migrate(); route(); })();
