@@ -5,8 +5,8 @@
 
 /* >>> INCOLLA QUI I DUE VALORI (Supabase → Project Settings → API) <<<
    Usa la chiave "anon / publishable". MAI la service_role. */
-const SUPABASE_URL = 'INCOLLA_QUI_PROJECT_URL';   // es. https://abcdefgh.supabase.co
-const SUPABASE_KEY = 'INCOLLA_QUI_ANON_KEY';
+const SUPABASE_URL = 'https://kebsdyfarcfxejrvitvu.supabase.co';   // es. https://abcdefgh.supabase.co
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtlYnNkeWZhcmNmeGVqcnZpdHZ1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE4MDQwODEsImV4cCI6MjEwNzM4MDA4MX0.0-cCg_8oPtr2FesBtAODVAQEmWX1U5dqYxBcAY_-zf8';
 
 if (!/^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/i.test(SUPABASE_URL) || SUPABASE_KEY.startsWith('INCOLLA')) {
   document.body.innerHTML = '<p style="padding:24px;font-family:sans-serif">Configura <b>SUPABASE_URL</b> e <b>SUPABASE_KEY</b> all\'inizio di script.js</p>';
