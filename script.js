@@ -1,13 +1,19 @@
 /* =====================================================
-   MenuPro v2.1 · Admin + Ristoratore + Cliente (solo da QR)
-   I dati stanno nel localStorage del browser: per usarlo
-   tra dispositivi diversi serve un database online.
+   MenuPro v3 · Admin + Ristoratore + Cliente (solo da QR)
+   Dati su Supabase: database, login, realtime e foto.
    ===================================================== */
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="config.js"></script>
-<script src="script.js"></script>
-const KEY = 'menupro_admin_v1';          // stessa chiave della versione precedente: i dati restano
+/* >>> INCOLLA QUI I DUE VALORI (Supabase → Project Settings → API) <<<
+   Usa la chiave "anon / publishable". MAI la service_role. */
+const SUPABASE_URL = 'INCOLLA_QUI_PROJECT_URL';   // es. https://abcdefgh.supabase.co
+const SUPABASE_KEY = 'INCOLLA_QUI_ANON_KEY';
+
+if (!/^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/i.test(SUPABASE_URL) || SUPABASE_KEY.startsWith('INCOLLA')) {
+  document.body.innerHTML = '<p style="padding:24px;font-family:sans-serif">Configura <b>SUPABASE_URL</b> e <b>SUPABASE_KEY</b> all\'inizio di script.js</p>';
+  throw new Error('Configurazione Supabase mancante');
+}
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
 const THEME_KEY = 'menupro_theme';
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
@@ -86,9 +92,7 @@ const getTheme = () => {
 };
 applyTheme(getTheme());
 
-/* ===== Colore del ristorante (area cliente) =====
-   Calcolato qui, senza color-mix, così funziona anche sui telefoni più vecchi.
-   Il testo sull'intestazione si adatta: scuro se il colore scelto è chiaro. */
+/* ===== Colore del ristorante (area cliente) ===== */
 const hx = c => [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16));
 const toHex = a => '#' + a.map(v => Math.round(v).toString(16).padStart(2, '0')).join('');
 const mix = (c, t, p) => { const a = hx(c), b = hx(t); return toHex(a.map((v, i) => v * (1 - p) + b[i] * p)); };
@@ -111,7 +115,6 @@ function clearBrand() {
 
 /* ===== Foto dei piatti ===== */
 const validImg = v => typeof v === 'string' && /^(https?:\/\/\S+|data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+)$/i.test(v) ? v : '';
-/* le foto salvate nel browser vengono trasformate una sola volta in un indirizzo breve (blob:), così la pagina resta leggera */
 const imgCache = new Map();
 function imgSrc(v) {
   if (!v) return '';
@@ -145,6 +148,14 @@ async function compressImage(file, max = 640, q = .72) {
   g.drawImage(im, 0, 0, c.width, c.height);
   return c.toDataURL('image/jpeg', q);
 }
+/* carica la foto su Supabase Storage (bucket "piatti") e restituisce il link pubblico */
+async function uploadImg(rid, dataUrl) {
+  const blob = await (await fetch(dataUrl)).blob();
+  const path = `${rid}/${uid()}.jpg`;
+  const { error } = await sb.storage.from('piatti').upload(path, blob, { contentType: 'image/jpeg', cacheControl: '31536000' });
+  if (error) throw new Error('Caricamento foto non riuscito: ' + humanError(error));
+  return sb.storage.from('piatti').getPublicUrl(path).data.publicUrl;
+}
 /* se un link non si carica, al suo posto compare un'icona */
 document.addEventListener('error', e => {
   const t = e.target;
@@ -156,134 +167,155 @@ document.addEventListener('error', e => {
 /* ===== Costanti ===== */
 const ALLERGENS = ['Glutine', 'Crostacei', 'Uova', 'Pesce', 'Arachidi', 'Soia', 'Latte e derivati', 'Frutta a guscio', 'Sedano', 'Senape', 'Sesamo', 'Solfiti', 'Lupini', 'Molluschi'];
 const TAGS = ['Vegetariano', 'Vegano', 'Senza glutine', 'Piccante'];
-const DEFAULT_CATS = ['Antipasti', 'Primi piatti', 'Secondi piatti', 'Contorni', 'Pizze', 'Dolci', 'Bevande'];
-const CAT_RENAME = { Primi: 'Primi piatti', Secondi: 'Secondi piatti' };
 const STATUS_LABEL = { nuovo: 'Ricevuto', preparazione: 'In preparazione', servito: 'Servito', chiuso: 'Chiuso', annullato: 'Annullato' };
 
-/* ===== Codici casuali (password temporanee e codici dei tavoli) ===== */
+/* password temporanee */
 const rnd = n => [...crypto.getRandomValues(new Uint8Array(n))].map(b => 'abcdefghjkmnpqrstuvwxyz23456789'[b % 31]).join('');
-function ensureTokens(r) {
-  r.tokens = r.tokens || {};
-  for (let n = 1; n <= r.tables; n++) if (!r.tokens[n]) r.tokens[n] = rnd(10);
-}
 
-/* ===== Password: PBKDF2 con sale (mai in chiaro) =====
-   Le vecchie password (sha / dj) restano valide e vengono aggiornate al primo accesso. */
-const hex = b => [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, '0')).join('');
-const unhex = s => Uint8Array.from(s.match(/../g).map(x => parseInt(x, 16)));
-function dj(t) { let h = 5381; for (const c of t) h = ((h << 5) + h + c.charCodeAt(0)) >>> 0; return 'dj:' + h.toString(16); }
-async function pbkdf2(pw, salt) {
-  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(pw), 'PBKDF2', false, ['deriveBits']);
-  return crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 150000, hash: 'SHA-256' }, key, 256);
-}
-async function hash(pw) {
-  try {
-    if (window.crypto && crypto.subtle) {
-      const salt = crypto.getRandomValues(new Uint8Array(16));
-      return 'pb:' + hex(salt) + ':' + hex(await pbkdf2(pw, salt));
-    }
-  } catch { }
-  return dj('menupro::' + pw);
-}
-async function verify(pw, stored) {
-  if (!stored) return false;
-  try {
-    if (stored.startsWith('dj:')) return dj('menupro::' + pw) === stored;
-    if (stored.startsWith('pb:')) { const [, s, h] = stored.split(':'); return hex(await pbkdf2(pw, unhex(s))) === h; }
-    const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('menupro::' + pw));
-    return 'sha:' + hex(b) === stored;
-  } catch { return false; }
-}
-/* se l'hash è vecchio lo rifà con il metodo nuovo */
-async function upgraded(pw, stored) {
-  if (stored && stored.startsWith('pb:')) return stored;
-  const h = await hash(pw);
-  return h.startsWith('pb:') ? h : stored;
-}
+/* =====================================================
+   DATI (Supabase)
+   Il database viene copiato in "db" con la stessa forma di prima,
+   così le schermate restano uguali. Ogni modifica va prima su Supabase.
+   ===================================================== */
+let db = { plans: [], restaurants: [], menu: [], orders: [], calls: [], payments: [], orderCount: 0 };
+let me = null;          // utente collegato: { id, email, ruolo }
+let ready = false;
 
-/* ===== Limite tentativi di accesso (30 secondi dopo 5 errori) ===== */
-const lockKey = k => 'menupro_lock_' + k;
-function lockLeft(k) {
-  try { const x = JSON.parse(localStorage.getItem(lockKey(k)) || '{}'); return Math.max(0, Math.ceil(((x.until || 0) - Date.now()) / 1000)); } catch { return 0; }
+function humanError(e) {
+  const m = (e && e.message) || String(e);
+  if (e && e.code === '42501') return 'Non hai i permessi per questa operazione';
+  if (e && e.code === '23505') return 'Esiste già un elemento con questo nome';
+  if (e && e.code === '23503') return 'Operazione non possibile: ci sono dati collegati';
+  if (/Failed to fetch|NetworkError|Load failed/i.test(m)) return 'Connessione assente: riprova';
+  return m;
 }
-function loginFail(k) {
-  try {
-    const x = JSON.parse(localStorage.getItem(lockKey(k)) || '{}');
-    x.n = (x.n || 0) + 1;
-    if (x.n >= 5) { x.until = Date.now() + 30000; x.n = 0; }
-    localStorage.setItem(lockKey(k), JSON.stringify(x));
-  } catch { }
+/* esegue una richiesta Supabase e lancia un errore leggibile se fallisce */
+async function q(p) {
+  const { data, error } = await p;
+  if (error) { console.error(error); throw new Error(humanError(error)); }
+  return data;
 }
-const loginOk = k => { try { localStorage.removeItem(lockKey(k)); } catch { } };
-
-/* ===== Dati ===== */
-const defaults = () => ({
-  settings: { baseUrl: '', adminHash: null },
-  plans: [
-    { id: 'base', name: 'Base', price: 29, desc: 'Menù digitale e QR code' },
-    { id: 'pro', name: 'Pro', price: 59, desc: 'Base + ordini al tavolo' },
-    { id: 'premium', name: 'Premium', price: 99, desc: 'Pro + prenotazioni e statistiche' }
-  ],
-  restaurants: [
-    { id: 'r1', demo: true, name: 'Trattoria da Mario', owner: 'Mario Rossi', email: 'mario@esempio.it', password: 'mario123', city: 'Brescia', tables: 8, plan: 'pro', expires: addMonths(today(), 1), suspended: false, color: '#0f5c4a', cats: [...DEFAULT_CATS] }
-  ],
-  menu: [
-    { id: uid(), rid: 'r1', cat: 'Antipasti', name: 'Tagliere misto', desc: 'Salumi e formaggi locali', price: 12, allergens: ['Latte e derivati'], tags: [] },
-    { id: uid(), rid: 'r1', cat: 'Primi piatti', name: 'Casoncelli alla bresciana', desc: 'Burro, salvia e pancetta', price: 11.5, allergens: ['Glutine', 'Uova', 'Latte e derivati'], tags: [], featured: true },
-    { id: uid(), rid: 'r1', cat: 'Primi piatti', name: "Spaghetti all'arrabbiata", desc: 'Pomodoro e peperoncino', price: 9, allergens: ['Glutine'], tags: ['Vegano', 'Piccante'] },
-    { id: uid(), rid: 'r1', cat: 'Secondi piatti', name: 'Tagliata di manzo', desc: 'Con rucola e grana', price: 18, allergens: ['Latte e derivati'], tags: [] },
-    { id: uid(), rid: 'r1', cat: 'Dolci', name: 'Tiramisù', desc: 'Fatto in casa', price: 6, allergens: ['Glutine', 'Uova', 'Latte e derivati'], tags: ['Vegetariano'] },
-    { id: uid(), rid: 'r1', cat: 'Bevande', name: 'Acqua naturale 0,75 l', desc: '', price: 2.5, allergens: [], tags: ['Vegano'] }
-  ],
-  orders: [], calls: [], payments: []
-});
-
-let db;
-function loadDb() {
-  try { db = JSON.parse(localStorage.getItem(KEY)) || defaults(); } catch { db = defaults(); }
-  db.settings = db.settings || {};
-  db.settings.baseUrl = db.settings.baseUrl || '';
-  db.settings.adminHash = db.settings.adminHash || null;
-  db.plans = db.plans && db.plans.length ? db.plans : defaults().plans;
-  ['restaurants', 'menu', 'orders', 'calls', 'payments'].forEach(k => db[k] = db[k] || []);
-  db.restaurants.forEach(r => {
-    r.tables = r.tables || 8; r.color = r.color || '#0f5c4a';
-    const old = (r.cats || r.catOrder || []).map(c => CAT_RENAME[c] || c);
-    r.cats = [...new Set(r.cats ? old : [...old, ...DEFAULT_CATS])];
-    delete r.catOrder;
-    ensureTokens(r);
+/* chiama la funzione serverless di Vercel (solo amministratore) */
+async function api(action, payload = {}) {
+  const { data: { session } } = await sb.auth.getSession();
+  const res = await fetch('/api/utenti', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (session?.access_token || '') },
+    body: JSON.stringify({ action, ...payload })
   });
-  db.menu.forEach(i => {
-    i.tags = i.tags || []; i.allergens = i.allergens || [];
-    i.img = validImg(i.img);
-    if (CAT_RENAME[i.cat]) i.cat = CAT_RENAME[i.cat];
-    if (i.tags.includes('Lattosio')) { i.tags = i.tags.filter(x => x !== 'Lattosio'); if (!i.allergens.includes('Latte e derivati')) i.allergens.push('Latte e derivati'); }
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(j.error || 'Operazione non riuscita');
+  return j;
+}
+
+async function loadData() {
+  const T = (t, s = '*') => sb.from(t).select(s);
+  const res = await Promise.all([
+    T('piano'),
+    T('ristorante').order('created_on'),
+    T('utente'),
+    T('categoria'),
+    T('piatto', '*, categoria(nome, id_ristorante)'),
+    T('tavolo'),
+    T('pagamento').order('created_on', { ascending: false }).limit(200),
+    T('chiamata').eq('fatto', false),
+    T('ordine', '*, riga_ordine(*), messaggio(*)').order('created_on', { ascending: false }).limit(1000),
+    sb.from('ordine').select('id', { count: 'exact', head: true })
+  ]);
+  const bad = res.find(x => x.error);
+  if (bad) { console.error(bad.error); throw new Error(humanError(bad.error)); }
+  const [pi, ri, ut, ca, pt, tv, pg, ch, od, oc] = res;
+
+  const emailOf = {};
+  ut.data.forEach(u => emailOf[u.id] = u.email);
+
+  db.plans = pi.data.map(p => ({ id: p.id, name: p.nome, price: +p.prezzo, desc: p.descrizione }));
+
+  db.restaurants = ri.data.map(r => {
+    const cs = ca.data.filter(c => c.id_ristorante === r.id)
+      .sort((a, b) => a.posizione - b.posizione || a.nome.localeCompare(b.nome));
+    const tokens = {};
+    tv.data.filter(t => t.id_ristorante === r.id).forEach(t => tokens[t.numero] = t.codice_qr);
+    return {
+      id: r.id, name: r.nome, owner: r.titolare, ownerId: r.id_proprietario,
+      email: emailOf[r.id_proprietario] || '', city: r.citta, tables: r.n_tavoli,
+      plan: r.id_piano, expires: r.scadenza, suspended: r.sospeso, color: r.colore,
+      cats: cs.map(c => c.nome), catIds: Object.fromEntries(cs.map(c => [c.nome, c.id])), tokens
+    };
   });
-  db.orders.forEach((o, i) => { if (!o.n) o.n = i + 1; o.messages = o.messages || []; o.items = o.items || []; });
+
+  db.menu = pt.data.map(p => ({
+    id: p.id, rid: p.categoria.id_ristorante, cat: p.categoria.nome, catId: p.id_categoria,
+    name: p.nome, desc: p.descrizione, price: +p.prezzo, img: p.immagine || '',
+    allergens: p.allergeni || [], tags: p.tag || [], featured: p.consigliato,
+    available: p.disponibile, pos: p.posizione
+  })).sort((a, b) => a.pos - b.pos || a.name.localeCompare(b.name));
+
+  db.payments = pg.data.map(p => ({ id: p.id, rid: p.id_ristorante, name: p.nome, amount: +p.importo, at: new Date(p.created_on).getTime() }));
+  db.calls = ch.data.map(c => ({ id: c.id, rid: c.id_ristorante, table: c.numero_tavolo, type: c.tipo, done: c.fatto, at: new Date(c.created_on).getTime() }));
+  db.orders = od.data.map(o => ({
+    id: o.id, n: o.numero, rid: o.id_ristorante, table: o.numero_tavolo, status: o.stato,
+    note: o.nota || '', unread: o.non_letto, at: new Date(o.created_on).getTime(),
+    items: (o.riga_ordine || []).map(r => ({ name: r.nome_piatto, price: +r.prezzo_pagato, qty: r.quantita_piatto })),
+    messages: (o.messaggio || []).sort((a, b) => new Date(a.created_on) - new Date(b.created_on))
+      .map(m => ({ text: m.testo, at: new Date(m.created_on).getTime() }))
+  }));
+  db.orderCount = oc.count ?? db.orders.length;
 }
-loadDb();
-const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(db)); return true; } catch { return false; } };
-const save = () => { const ok = persist(); if (!ok) toast('Impossibile salvare: la memoria del browser è piena'); return ok; };
-/* salva; se non c'è spazio annulla la modifica (utile con le foto) */
-function saveOrUndo(undo) {
-  if (persist()) return true;
-  undo();
-  toast('Spazio esaurito: usa foto più piccole o toglile da altri piatti');
-  return false;
+/* ricarica i dati e ridisegna */
+async function reload() { await loadData(); route(); }
+
+/* ===== Login ===== */
+async function fetchMe(id) {
+  const { data } = await sb.from('utente').select('id,email,ruolo').eq('id', id).maybeSingle();
+  return data || null;
 }
-async function migrate() {
-  for (const r of db.restaurants) {
-    if (!r.passHash) { r.passHash = await hash(r.password || '1234'); delete r.password; }
+async function doLogin(email, pw, ruolo) {
+  const { data, error } = await sb.auth.signInWithPassword({ email, password: pw });
+  if (error) throw new Error('Email o password non corretti.');
+  const u = await fetchMe(data.user.id);
+  if (!u || u.ruolo !== ruolo) {
+    await sb.auth.signOut(); me = null;
+    throw new Error(ruolo === 'admin' ? 'Questo account non è un amministratore.' : 'Questo account non è un ristoratore.');
   }
-  save();
+  me = u;
+  await loadData();
+  subscribeRealtime();
+  route();
 }
+async function doLogout() {
+  unsubscribeRealtime();
+  await sb.auth.signOut();
+  me = null;
+  db = { plans: [], restaurants: [], menu: [], orders: [], calls: [], payments: [], orderCount: 0 };
+  route();
+}
+async function initAuth() {
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) return;
+  me = await fetchMe(session.user.id);
+  if (me) { try { await loadData(); } catch (e) { console.error(e); } subscribeRealtime(); }
+}
+sb.auth.onAuthStateChange(ev => { if (ev === 'SIGNED_OUT' && me) { me = null; unsubscribeRealtime(); if (ready) route(); } });
 
-/* spazio occupato (il browser consente circa 5 milioni di caratteri) */
-function storageHtml() {
-  const len = (localStorage.getItem(KEY) || '').length, pct = Math.min(100, len / 5e6 * 100);
-  const n = db.menu.filter(i => i.img && i.img.startsWith('data:')).length;
-  return `<p class="muted">Foto caricate: <b>${n}</b>. Spazio usato nel browser: <b>${(len / 1e6).toFixed(1)} MB</b> su circa 5 MB.</p>
-    <div class="rt" style="margin-top:8px"><div class="rf" style="width:${pct}%${pct > 85 ? ';background:var(--bad)' : ''}"></div></div>`;
+/* ===== Aggiornamento live per il ristoratore ===== */
+let rtChan = null, rtTimer = null;
+function unsubscribeRealtime() { if (rtChan) { sb.removeChannel(rtChan); rtChan = null; } }
+function subscribeRealtime() {
+  unsubscribeRealtime();
+  if (!me || me.ruolo !== 'ristoratore') return;
+  rtChan = sb.channel('menupro-live');
+  ['ordine', 'riga_ordine', 'messaggio', 'chiamata'].forEach(t =>
+    rtChan.on('postgres_changes', { event: '*', schema: 'public', table: t }, () => { clearTimeout(rtTimer); rtTimer = setTimeout(liveReload, 500); }));
+  rtChan.subscribe();
+}
+async function liveReload() {
+  if (!me) return;
+  const sig = () => Math.max(0, ...db.orders.map(o => o.n)) + db.orders.filter(o => o.unread).length + db.calls.length;
+  const before = sig();
+  try { await loadData(); } catch (e) { console.error(e); return; }
+  if ($('#modalBg').hidden && !focusedInput()) route();
+  if (me.ruolo === 'ristoratore' && location.hash.startsWith('#/ristoratore') && sig() > before) { toast('Nuova richiesta in arrivo'); beep(); }
 }
 
 /* ===== Helper di dominio ===== */
@@ -292,8 +324,8 @@ const statusOf = r => r.suspended ? 'sospeso' : (r.expires < today() ? 'scaduto'
 const restActive = r => statusOf(r) === 'attivo';
 const badge = r => `<span class="badge ${statusOf(r)}">${statusOf(r)}</span>`;
 const orderTotal = o => round2(o.items.reduce((s, i) => s + i.price * i.qty, 0));
-const emailTaken = (email, exceptId) => db.restaurants.some(r => r.id !== exceptId && r.email.toLowerCase() === String(email).trim().toLowerCase());
-const siteUrl = () => ((db.settings.baseUrl || '').trim() || location.href).split('#')[0];
+const emailTaken = (email, exceptId) => db.restaurants.some(r => r.id !== exceptId && r.email && r.email.toLowerCase() === String(email).trim().toLowerCase());
+const siteUrl = () => location.origin + location.pathname;
 const isOpen = o => !['chiuso', 'annullato'].includes(o.status);
 const focusedInput = () => { const a = document.activeElement; return !!a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName); };
 
@@ -301,10 +333,6 @@ const focusedInput = () => { const a = document.activeElement; return !!a && /^(
 const tableUrl = (rid, n) => {
   const r = db.restaurants.find(x => x.id === rid);
   return `${siteUrl()}#/c/${rid}/${n}/${r?.tokens?.[n] || ''}`;
-};
-const tableOk = (rid, table, tok) => {
-  const r = db.restaurants.find(x => x.id === rid);
-  return !!(r && table >= 1 && table <= r.tables && tok && r.tokens && r.tokens[table] === tok);
 };
 
 const infoHtml = i => {
@@ -314,19 +342,19 @@ const infoHtml = i => {
 };
 
 /* ===== Categorie ===== */
-function catsOf(rid) {
+const catsOf = rid => db.restaurants.find(x => x.id === rid)?.cats || [];
+async function createCat(rid, name) {
   const r = db.restaurants.find(x => x.id === rid);
-  const base = r?.cats || [];
-  const extra = [...new Set(db.menu.filter(m => m.rid === rid).map(m => m.cat))].filter(c => !base.includes(c));
-  return [...base, ...extra];
+  const row = await q(sb.from('categoria').insert({ id_ristorante: rid, nome: name, posizione: r.cats.length }).select().single());
+  r.cats.push(name); r.catIds[name] = row.id;
+  return row.id;
 }
-function addCat(rid, name) { db.restaurants.find(x => x.id === rid).cats = [...catsOf(rid), name]; }
-function moveCat(n, dir) {
-  const rid = curRid(), list = catsOf(rid), j = n + dir;
+async function moveCat(n, dir) {
+  const rid = curRid(), r = db.restaurants.find(x => x.id === rid), list = [...r.cats], j = n + dir;
   if (j < 0 || j >= list.length) return;
   [list[n], list[j]] = [list[j], list[n]];
-  db.restaurants.find(x => x.id === rid).cats = list;
-  save(); refresh();
+  await Promise.all(list.map((c, i) => q(sb.from('categoria').update({ posizione: i }).eq('id', r.catIds[c]))));
+  await reload();
 }
 
 /* ===== Notifiche ===== */
@@ -363,7 +391,7 @@ function openModal(title, html, cb, opt = {}) {
   $('#modalTitle').textContent = title;
   $('#modalBody').innerHTML = html;
   const s = $('#modalSave');
-  s.hidden = !cb; s.textContent = opt.ok || 'Salva'; s.classList.toggle('danger', !!opt.danger);
+  s.hidden = !cb; s.disabled = false; s.textContent = opt.ok || 'Salva'; s.classList.toggle('danger', !!opt.danger);
   $('#modalCancel').textContent = cb ? 'Annulla' : 'Chiudi';
   onSave = cb; onCancel = opt.onCancel || null;
   $('#modalBg').hidden = false;
@@ -385,7 +413,13 @@ $('#modal').addEventListener('submit', async e => {
   e.preventDefault();
   const d = {};
   for (const [k, v] of new FormData(e.target)) d[k] = k in d ? [].concat(d[k], v) : v;
-  if (onSave && (await onSave(d)) === false) return;   // false = la finestra resta aperta
+  const sv = $('#modalSave');
+  sv.disabled = true;
+  let res;
+  try { res = onSave ? await onSave(d) : undefined; }
+  catch (err) { console.error(err); toast(err.message || 'Operazione non riuscita'); sv.disabled = false; return; }
+  sv.disabled = false;
+  if (res === false) return;   // false = la finestra resta aperta
   onCancel = null; closeModal();
 });
 
@@ -396,7 +430,7 @@ function route() {
   document.body.classList.remove('is-client');
   clearBrand();
   document.title = 'MenuPro';
-  if (p[0] === 'c') { $('#clientApp').hidden = false; renderClient(p[1], p[2], p[3]); }
+  if (p[0] === 'c') { $('#clientApp').hidden = false; enterClient(p[1], p[2], p[3]); }
   else {
     syncLock();
     if (p[0] === 'ristoratore') { $('#restApp').hidden = false; renderRest(); }
@@ -404,29 +438,9 @@ function route() {
   }
 }
 const refresh = route;
-window.addEventListener('hashchange', () => { route(); window.scrollTo(0, 0); });
-
-/* aggiornamento live tra schede dello stesso browser */
-window.addEventListener('storage', e => {
-  if (e.key !== KEY) return;
-  const rid = rSess();
-  const signal = () => db.orders.filter(o => o.rid === rid).length + db.orders.filter(o => o.rid === rid && o.unread).length + db.calls.filter(c => c.rid === rid && !c.done).length;
-  const before = signal();
-  const mineSnap = () => Object.fromEntries(db.orders.filter(o => getMine().includes(o.id)).map(o => [o.id, o.status]));
-  const prevMine = mineSnap();
-  loadDb();
-  if (!$('#modalBg').hidden || focusedInput()) return;
-  route();
-  if (rid && location.hash.startsWith('#/ristoratore') && signal() > before) { toast('Nuova richiesta in arrivo'); beep(); }
-  if (location.hash.startsWith('#/c/')) {
-    const now = mineSnap();
-    for (const id in now) if (prevMine[id] && prevMine[id] !== now[id]) {
-      const o = db.orders.find(x => x.id === id);
-      if (now[id] === 'preparazione') toast(`Ordine #${o.n}: lo stiamo preparando`);
-      else if (now[id] === 'servito') toast(`Ordine #${o.n}: è in arrivo al tavolo`);
-      else if (now[id] === 'annullato') toast(`Ordine #${o.n} annullato dal ristorante`);
-    }
-  }
+window.addEventListener('hashchange', () => { if (!ready) return; route(); window.scrollTo(0, 0); });
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && ready && me && location.hash.startsWith('#/ristoratore')) liveReload();
 });
 
 /* =====================================================
@@ -505,18 +519,22 @@ function itemForm(rid, i = {}) {
   <div class="checks">${TAGS.map(t => `<label><input type="checkbox" name="tag" value="${t}" ${i.tags?.includes(t) ? 'checked' : ''}> ${t}</label>`).join('')}
     <label><input type="checkbox" name="featured" ${i.featured ? 'checked' : ''}> Consigliato dallo chef</label></div>`;
 }
-/* restituisce null se la nuova categoria è vuota */
-function itemData(rid, d) {
+/* converte i dati del form nelle colonne del database; restituisce null se la nuova categoria è vuota */
+async function itemData(rid, d) {
   let cat = d.cat;
   if (cat === '__new__') {
     cat = (d.newcat || '').trim();
     if (!cat) return null;
     const ex = catsOf(rid).find(c => c.toLowerCase() === cat.toLowerCase());
-    if (ex) cat = ex; else addCat(rid, cat);
+    if (ex) cat = ex; else await createCat(rid, cat);
   }
+  const r = db.restaurants.find(x => x.id === rid);
+  let img = validImg(d.img);
+  if (img.startsWith('data:')) img = await uploadImg(rid, img);
   return {
-    cat, name: d.name.trim(), desc: (d.desc || '').trim(), price: round2(Math.max(0, +d.price || 0)),
-    img: validImg(d.img), allergens: [].concat(d.allergen || []), tags: [].concat(d.tag || []), featured: !!d.featured
+    id_categoria: r.catIds[cat], nome: d.name.trim(), descrizione: (d.desc || '').trim(),
+    prezzo: round2(Math.max(0, +d.price || 0)), immagine: img || null,
+    allergeni: [].concat(d.allergen || []), tag: [].concat(d.tag || []), consigliato: !!d.featured
   };
 }
 const setPrev = src => { const p = $('#imgPrev'); if (p) p.innerHTML = src ? `<img class="dimg" src="${esc(src)}" alt="">` : ic('image', 30); };
@@ -525,26 +543,17 @@ const setPrev = src => { const p = $('#imgPrev'); if (p) p.innerHTML = src ? `<i
    1. ADMIN
    ===================================================== */
 let view = 'dashboard';
-let menuRid = db.restaurants[0]?.id || '';
-const adminAuthed = () => { try { return sessionStorage.getItem('menupro_admin') === '1'; } catch { return false; } };
-const adminSet = v => { try { v ? sessionStorage.setItem('menupro_admin', '1') : sessionStorage.removeItem('menupro_admin'); } catch { } };
+let menuRid = '';
+const adminAuthed = () => !!me && me.ruolo === 'admin';
 
 $('#adminForm').addEventListener('submit', async e => {
   e.preventDefault();
-  const err = $('#adminErr');
-  const left = lockLeft('admin');
-  if (left) { err.textContent = `Troppi tentativi. Riprova tra ${left} secondi.`; return; }
-  const f = new FormData(e.target), pw = String(f.get('password'));
-  if (!db.settings.adminHash) {
-    if (pw !== f.get('confirm')) { err.textContent = 'Le due password non coincidono.'; return; }
-    db.settings.adminHash = await hash(pw); save();
-  } else {
-    if (!(await verify(pw, db.settings.adminHash))) { loginFail('admin'); err.textContent = 'Password errata.'; return; }
-    const up = await upgraded(pw, db.settings.adminHash);
-    if (up !== db.settings.adminHash) { db.settings.adminHash = up; save(); }
-  }
-  loginOk('admin'); err.textContent = '';
-  adminSet(true); e.target.reset(); route();
+  const err = $('#adminErr'), btn = $('#adminBtn');
+  err.textContent = ''; btn.disabled = true;
+  const f = new FormData(e.target);
+  try { await doLogin(String(f.get('email')).trim(), String(f.get('password')), 'admin'); e.target.reset(); }
+  catch (x) { err.textContent = x.message; }
+  btn.disabled = false;
 });
 
 function viewDashboard() {
@@ -565,7 +574,7 @@ function viewDashboard() {
     <div class="stat"><b>${eur(monthPay)}</b><span>Pagamenti di questo mese</span></div>
     <div class="stat"><b>${active.length}<small>/${db.restaurants.length}</small></b><span>Ristoranti attivi</span></div>
     <div class="stat"><b>${expired.length}</b><span>Abbonamenti scaduti</span></div>
-    <div class="stat"><b>${db.orders.length}</b><span>Ordini ricevuti</span></div>
+    <div class="stat"><b>${db.orderCount}</b><span>Ordini ricevuti</span></div>
   </div>
   <div class="grid2">
     <div class="panel"><h3>Pagamenti degli ultimi 6 mesi</h3>${barChart(chart)}</div>
@@ -584,7 +593,7 @@ function viewRistoranti() {
   <div class="panel"><table>
   <tr><th>Ristorante</th><th>Titolare</th><th>Città</th><th>Piano</th><th>Scadenza</th><th>Stato</th><th></th></tr>
   ${db.restaurants.map(r => `<tr data-s="${esc((r.name + ' ' + r.owner + ' ' + r.city + ' ' + r.email).toLowerCase())}">
-    <td><b>${esc(r.name)}</b><br><small class="muted">${esc(r.email)} · ${r.tables} tavoli</small></td>
+    <td><b>${esc(r.name)}</b><br><small class="muted">${esc(r.email || 'nessun account collegato')} · ${r.tables} tavoli</small></td>
     <td>${esc(r.owner)}</td><td>${esc(r.city)}</td><td>${planOf(r.plan).name}</td>
     <td>${fdate(r.expires)}</td><td>${badge(r)}</td>
     <td class="act">
@@ -631,24 +640,14 @@ function viewMenuAdmin() {
 
 function viewImpostazioni() {
   return `
-  <div class="panel"><h3>Indirizzo pubblico del sito</h3>
-    <p class="muted">I QR dei tavoli usano questo indirizzo. Inseriscilo quando il sito è online (es. https://miosito.it/). Se lo lasci vuoto viene usato quello attuale, che sul telefono non funziona se apri il file dal computer.</p>
-    <div class="toolbar" style="margin-top:12px"><input id="baseUrl" style="max-width:420px" placeholder="https://miosito.it/" value="${esc(db.settings.baseUrl)}" aria-label="Indirizzo pubblico"><button class="btn" data-act="a-baseurl">Salva</button></div>
-  </div>
-  <div class="panel"><h3>Foto dei piatti e spazio</h3>
-    ${storageHtml()}
-    <p class="muted" style="margin-top:10px">Le foto caricate vengono ridotte in automatico (640 px). In questa versione stanno nella memoria del browser, quindi ne entrano alcune decine. Per averne di più e per vederle da più dispositivi serve il database online.</p>
-  </div>
-  <div class="panel"><h3>Sicurezza</h3>
-    <p class="muted">Le password sono salvate cifrate (PBKDF2 con sale), non in chiaro. L'area cliente si apre solo dal QR del tavolo, che contiene un codice segreto. Sono protezioni lato browser: per un uso reale serve un login su server.</p>
+  <div class="panel"><h3>Account</h3>
+    <p class="muted">Accesso come <b>${esc(me.email)}</b>. Le password sono gestite da Supabase Auth: cifrate e mai visibili.</p>
     <p style="margin-top:12px"><button class="btn ghost" data-act="a-pass">Cambia password admin</button></p>
   </div>
   <div class="panel"><h3>Backup dei dati</h3>
-    <p class="muted">Il file contiene ristoranti, menù, foto, ordini e le password cifrate. Conservalo in un posto sicuro.</p>
+    <p class="muted">Scarica un file con ristoranti, menù, ordini e pagamenti. Il database è già salvato online da Supabase; questo è un extra.</p>
     <div class="toolbar" style="margin-top:12px">
       <button class="btn" data-act="a-export">${ic('download', 16)} Scarica backup</button>
-      <button class="btn ghost" data-act="a-import">Importa backup</button>
-      <button class="btn ghost bad" data-act="a-reset">Cancella tutti i dati</button>
     </div>
   </div>`;
 }
@@ -657,15 +656,7 @@ const titles = { dashboard: 'Panoramica', ristoranti: 'Ristoranti', abbonamenti:
 const themeBtn = () => `<button class="btn ghost small light" data-act="theme" aria-label="Cambia tema" title="Cambia tema">${ic(document.documentElement.dataset.theme === 'dark' ? 'sun' : 'moon', 16)}</button>`;
 
 function renderAdmin() {
-  if (!adminAuthed()) {
-    const first = !db.settings.adminHash;
-    $('#adminGate').hidden = false;
-    $('#adminGateMsg').textContent = first ? "Prima configurazione: scegli la password dell'amministratore." : 'Accedi al pannello amministratore.';
-    $('#adminConfirm').hidden = !first;
-    $('#adminConfirm input').required = first;
-    $('#adminBtn').textContent = first ? 'Crea password e accedi' : 'Accedi';
-    return;
-  }
+  if (!adminAuthed()) { $('#adminGate').hidden = false; return; }
   $('#adminApp').hidden = false;
   if (!db.restaurants.find(r => r.id === menuRid)) menuRid = db.restaurants[0]?.id || '';
   $('#title').textContent = titles[view];
@@ -687,13 +678,15 @@ $('#nav').addEventListener('click', e => {
 });
 
 function restForm(r = {}, isNew = false) {
+  const emailField = (isNew || r.ownerId)
+    ? `<label for="fE">Email (serve per il login del ristoratore)</label><input id="fE" name="email" type="email" required value="${esc(r.email)}">` : '';
   return `
-  <label for="fN">Nome ristorante</label><input id="fN" name="name" required value="${esc(r.name)}">
+  <label for="fN">Nome ristorante</label><input id="fN" name="name" required maxlength="50" value="${esc(r.name)}">
   <div class="row">
     <div><label for="fO">Titolare</label><input id="fO" name="owner" required value="${esc(r.owner)}"></div>
     <div><label for="fC">Città</label><input id="fC" name="city" value="${esc(r.city)}"></div>
   </div>
-  <label for="fE">Email (serve per il login del ristoratore)</label><input id="fE" name="email" type="email" required value="${esc(r.email)}">
+  ${emailField}
   <div class="row">
     ${isNew ? '<div><label for="fP">Password (min. 6 caratteri)</label><input id="fP" name="password" minlength="6" required></div>' : ''}
     <div><label for="fT">Numero tavoli</label><input id="fT" name="tables" type="number" min="1" max="200" required value="${r.tables || 10}"></div>
@@ -708,24 +701,18 @@ function restForm(r = {}, isNew = false) {
    2. RISTORATORE
    ===================================================== */
 let rView = 'ordini';
-const rSess = () => { try { return sessionStorage.getItem('menupro_rest'); } catch { return null; } };
-const rSet = v => { try { v ? sessionStorage.setItem('menupro_rest', v) : sessionStorage.removeItem('menupro_rest'); } catch { } };
+const rSess = () => me && me.ruolo === 'ristoratore' ? (db.restaurants.find(r => r.ownerId === me.id)?.id || null) : null;
 const curRest = () => db.restaurants.find(x => x.id === rSess());
 const rTitles = { ordini: 'Ordini', tavoli: 'Tavoli e QR', menu: 'Menù e prezzi', stats: 'Statistiche', impostazioni: 'Impostazioni' };
 
 $('#loginForm').addEventListener('submit', async e => {
   e.preventDefault();
-  const err = $('#loginErr');
-  const left = lockLeft('rest');
-  if (left) { err.textContent = `Troppi tentativi. Riprova tra ${left} secondi.`; return; }
+  const err = $('#loginErr'), btn = e.target.querySelector('button[type=submit]');
+  err.textContent = ''; btn.disabled = true;
   const f = new FormData(e.target);
-  const email = String(f.get('email')).trim().toLowerCase(), pw = String(f.get('password'));
-  const r = db.restaurants.find(x => x.email.toLowerCase() === email);
-  if (!r || !(await verify(pw, r.passHash))) { loginFail('rest'); err.textContent = 'Email o password non corretti.'; return; }
-  const up = await upgraded(pw, r.passHash);
-  if (up !== r.passHash) { r.passHash = up; save(); }
-  loginOk('rest'); err.textContent = '';
-  rSet(r.id); e.target.reset(); renderRest();
+  try { await doLogin(String(f.get('email')).trim(), String(f.get('password')), 'ristoratore'); e.target.reset(); }
+  catch (x) { err.textContent = x.message; }
+  btn.disabled = false;
 });
 
 function orderCard(o) {
@@ -815,7 +802,6 @@ function rImpostazioni(r) {
     <p>Tavoli: <b>${r.tables}</b></p>
     <p>Colore del menù: <span class="tag" style="background:${validColor(r.color)};color:${lum(validColor(r.color)) > .45 ? '#16231d' : '#fff'}">${validColor(r.color)}</span></p>
     <p style="margin-top:14px"><button class="btn" data-act="r-settings">Modifica impostazioni</button></p></div>
-  <div class="panel"><h3>Foto dei piatti</h3>${storageHtml()}</div>
   <div class="panel"><h3>Codici QR</h3>
     <p class="muted">Il menù cliente si apre solo scansionando il QR del tavolo. Se un codice viene condiviso o rubato puoi rigenerare tutti i codici: i QR già stampati smetteranno di funzionare.</p>
     <p style="margin-top:14px"><button class="btn ghost bad" data-act="r-regen">Rigenera tutti i codici QR</button></p></div>`;
@@ -826,9 +812,7 @@ function renderRest() {
   $('#restLogin').hidden = !!r;
   $('#restPanel').hidden = !r;
   if (!r) {
-    const demo = db.restaurants.find(x => x.demo);
-    $('#demoHint').hidden = !demo;
-    if (demo) $('#demoHint').textContent = `Demo: ${demo.email} / mario123`;
+    if (me && me.ruolo === 'ristoratore') $('#loginErr').textContent = "Nessun ristorante collegato a questo account. Contatta l'amministratore.";
     return;
   }
   $('#rBrand').innerHTML = `<span class="logo">${esc((r.name || 'M').trim().charAt(0).toUpperCase())}</span><span class="bn">${esc(r.name)}</span>`;
@@ -859,24 +843,56 @@ $('#rNav').addEventListener('click', e => {
   if (b) { rView = b.dataset.rview; refresh(); window.scrollTo(0, 0); }
 });
 
-/* i tempi dei piatti in attesa si aggiornano da soli */
+/* ogni 30 secondi ricarica i dati (rete di sicurezza se il realtime si interrompe) */
 setInterval(() => {
-  if (document.hidden || !location.hash.startsWith('#/ristoratore') || !rSess()) return;
-  if (rView === 'ordini' && $('#modalBg').hidden && !focusedInput()) renderRest();
+  if (document.hidden || !me || !location.hash.startsWith('#/ristoratore') || !rSess()) return;
+  if ($('#modalBg').hidden && !focusedInput()) liveReload();
 }, 30000);
 
 /* =====================================================
    3. CLIENTE (telefono) — accessibile solo dal QR
+   Non legge mai le tabelle: usa solo le funzioni client_* di Supabase.
    ===================================================== */
 let cart = {}, cartNote = '', cKey = '', cSearch = '', cBanner = '', cEnter = false;
 const cTags = new Set(), cAvoid = new Set();
+let CD = null;   // dati del cliente: { key, rid, table, tok, status, restaurant, items, calls, orders }
 const MINE_KEY = 'menupro_my_orders';
 const getMine = () => { try { return JSON.parse(localStorage.getItem(MINE_KEY)) || []; } catch { return []; } };
 const addMine = id => { try { localStorage.setItem(MINE_KEY, JSON.stringify([...getMine(), id].slice(-40))); } catch { } };
-const cur = () => { const p = location.hash.replace(/^#\/?/, '').split('/'); return { rid: p[1], table: +p[2], tok: p[3] }; };
 const saveCart = () => { try { sessionStorage.setItem('menupro_cart_' + cKey, JSON.stringify({ cart, cartNote })); } catch { } };
 const loadCart = () => { try { const x = JSON.parse(sessionStorage.getItem('menupro_cart_' + cKey)); cart = x?.cart || {}; cartNote = x?.cartNote || ''; } catch { cart = {}; cartNote = ''; } };
 const openClient = what => { cOpen = what; cEnter = true; refresh(); };
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/* scarica menù e ordini del cliente; restituisce i dati oppure null se la rete non risponde */
+async function fetchClient(rid, t, tok) {
+  const base = { p_rid: rid, p_num: +t, p_codice: tok };
+  const { data, error } = await sb.rpc('client_menu', base);
+  if (error || !data) return null;
+  const D = { key: [rid, t, tok].join('/'), rid, table: +t, tok, status: data.status, restaurant: data.restaurant, items: data.items || [], calls: data.calls || [], orders: [] };
+  if (D.status === 'ok') {
+    const ids = getMine();
+    if (ids.length) {
+      const r2 = await sb.rpc('client_my_orders', { ...base, p_ids: ids });
+      D.orders = r2.data || [];
+    }
+  }
+  return D;
+}
+async function enterClient(rid, t, tok) {
+  document.body.classList.add('is-client');
+  document.documentElement.dataset.theme = 'light';   // il menù cliente è sempre in tema chiaro
+  const key = [rid, t, tok].join('/');
+  if (CD && CD.key === key) { renderClient(); return; }
+  if (!rid || !UUID.test(rid) || !(+t > 0) || !tok) { CD = { key, status: 'invalid' }; renderClient(); return; }
+  CD = null;
+  $('#clientApp').innerHTML = '<div class="phone"><div class="cmsg"><p class="muted">Caricamento del menù…</p></div></div>';
+  const D = await fetchClient(rid, t, tok);
+  const p = location.hash.replace(/^#\/?/, '').split('/');
+  if (p[0] !== 'c' || p[1] !== rid || p[2] !== t || p[3] !== tok) return;   // l'indirizzo è cambiato nel frattempo
+  CD = D || { key, status: 'error' };
+  renderClient();
+}
 
 function applySearch() {
   const q = cSearch.trim().toLowerCase();
@@ -909,32 +925,34 @@ function spy() {
 }
 window.addEventListener('scroll', spy, { passive: true });
 
-function renderClient(rid, t, tok) {
+function renderClient() {
   const el = $('#clientApp');
+  const D = CD;
   document.body.classList.add('is-client');
-  document.documentElement.dataset.theme = 'light';   // il menù cliente è sempre in tema chiaro, anche se il telefono è in modalità scura
-  const r = db.restaurants.find(x => x.id === rid);
-  const table = +t;
+  document.documentElement.dataset.theme = 'light';
   const msg = (icon, h, p) => { el.innerHTML = `<div class="phone"><div class="cmsg"><div class="qricon">${ic(icon, 52)}</div><h2>${h}</h2><p class="muted">${p}</p></div></div>`; syncLock(); };
-  if (!tableOk(rid, table, tok)) return msg('qr', 'Scansiona il codice QR', 'Il menù si apre solo inquadrando il codice QR che trovi sul tuo tavolo. Se il codice non funziona, chiedi aiuto al personale.');
-  if (!restActive(r)) return msg('pause', 'Menù non disponibile', 'Il servizio è momentaneamente sospeso. Chiedi al personale.');
-  document.title = r.name + ' · Menù';
-  const color = validColor(r.color);
-  setBrand(color);
+  if (!D || D.status === 'error') return msg('qr', 'Connessione non riuscita', 'Non riesco a caricare il menù. Controlla la rete e inquadra di nuovo il codice QR.');
+  if (D.status === 'invalid') return msg('qr', 'Scansiona il codice QR', 'Il menù si apre solo inquadrando il codice QR che trovi sul tuo tavolo. Se il codice non funziona, chiedi aiuto al personale.');
+  if (D.status === 'inactive') return msg('pause', 'Menù non disponibile', 'Il servizio è momentaneamente sospeso. Chiedi al personale.');
 
-  if (cKey !== rid + '/' + t) { cKey = rid + '/' + t; cOpen = null; cDish = null; cSearch = ''; cBanner = ''; cTags.clear(); cAvoid.clear(); loadCart(); }
-  const items = db.menu.filter(m => m.rid === rid);
+  const r = D.restaurant, rid = D.rid, table = D.table;
+  document.title = r.name + ' · Menù';
+  setBrand(validColor(r.color));
+
+  const ck = rid + '/' + table;
+  if (cKey !== ck) { cKey = ck; cOpen = null; cDish = null; cSearch = ''; cBanner = ''; cTags.clear(); cAvoid.clear(); loadCart(); }
+  const items = D.items;
   Object.keys(cart).forEach(id => { if (!items.some(i => i.id === id && i.available !== false)) delete cart[id]; });
   const dish = cOpen === 'dish' ? items.find(i => i.id === cDish) : null;
   if (cOpen === 'dish' && !dish) cOpen = null;
   const dishSrc = dish ? imgSrc(dish.img) : '';
-  const cats = catsOf(rid).filter(c => items.some(i => i.cat === c));
+  const cats = (r.cats || []).filter(c => items.some(i => i.cat === c));
   const count = Object.values(cart).reduce((a, b) => a + b, 0);
   const total = round2(items.reduce((s, i) => s + (cart[i.id] || 0) * i.price, 0));
-  const mine = db.orders.filter(o => o.rid === rid && o.table === table && getMine().includes(o.id) && o.status !== 'chiuso').sort((a, b) => b.at - a.at);
+  const mine = D.orders;
   const mineTotal = round2(mine.filter(o => o.status !== 'annullato').reduce((s, o) => s + orderTotal(o), 0));
   const nFilters = cTags.size + cAvoid.size;
-  const callPending = type => db.calls.some(c => c.rid === rid && c.table === table && c.type === type && !c.done);
+  const callPending = type => D.calls.includes(type);
   const enter = cEnter ? 'enter' : '';
 
   const qty = i => cart[i.id]
@@ -1032,6 +1050,31 @@ function renderClient(rid, t, tok) {
   spy();
 }
 
+/* il cliente vede lo stato degli ordini aggiornarsi da solo (ogni 8 secondi) */
+setInterval(async () => {
+  if (document.hidden || !location.hash.startsWith('#/c/') || !CD || CD.status !== 'ok') return;
+  const { rid, table, tok } = CD;
+  const prev = Object.fromEntries(CD.orders.map(o => [o.id, o.status]));
+  const D = await fetchClient(rid, String(table), tok);
+  if (!D || !CD || CD.key !== D.key) return;
+  CD = D;
+  if (D.status === 'ok') {
+    for (const o of D.orders) if (prev[o.id] && prev[o.id] !== o.status) {
+      if (o.status === 'preparazione') toast(`Ordine #${o.n}: lo stiamo preparando`);
+      else if (o.status === 'servito') toast(`Ordine #${o.n}: è in arrivo al tavolo`);
+      else if (o.status === 'annullato') toast(`Ordine #${o.n} annullato dal ristorante`);
+    }
+  }
+  if ($('#modalBg').hidden && !focusedInput()) renderClient();
+}, 8000);
+
+/* aggiorna i dati del cliente dopo un'azione */
+async function clientSync() {
+  if (!CD) return;
+  const D = await fetchClient(CD.rid, String(CD.table), CD.tok);
+  if (D) CD = D;
+}
+
 /* =====================================================
    AZIONI (click su elementi con data-act)
    ===================================================== */
@@ -1042,23 +1085,40 @@ const actions = {
   'new-rest'() {
     openModal('Nuovo ristorante e account', restForm({}, true), async d => {
       if (emailTaken(d.email)) { toast('Esiste già un account con questa email'); return false; }
-      const { password, ...rest } = d;
-      const r = { id: uid(), suspended: false, color: '#0f5c4a', cats: [...DEFAULT_CATS], ...rest, name: rest.name.trim(), email: rest.email.trim(), tables: +rest.tables, passHash: await hash(password) };
-      ensureTokens(r);
-      db.restaurants.push(r); if (!menuRid) menuRid = r.id;
-      save(); refresh(); toast('Ristorante e account creati');
+      await api('crea-ristorante', {
+        nome: d.name.trim(), titolare: d.owner.trim(), citta: (d.city || '').trim(), email: d.email.trim(),
+        password: d.password, n_tavoli: +d.tables, id_piano: d.plan, scadenza: d.expires
+      });
+      await reload(); toast('Ristorante e account creati');
     });
   },
   'edit-rest'(id) {
-    openModal('Modifica ristorante', restForm(db.restaurants.find(x => x.id === id)), d => {
-      if (emailTaken(d.email, id)) { toast('Esiste già un account con questa email'); return false; }
+    openModal('Modifica ristorante', restForm(db.restaurants.find(x => x.id === id)), async d => {
       const r = db.restaurants.find(x => x.id === id);
-      Object.assign(r, d, { email: d.email.trim(), tables: +d.tables }); ensureTokens(r);
-      save(); refresh(); toast('Modifiche salvate');
+      if (d.email && emailTaken(d.email, id)) { toast('Esiste già un account con questa email'); return false; }
+      await q(sb.from('ristorante').update({
+        nome: d.name.trim(), titolare: d.owner.trim(), citta: (d.city || '').trim(),
+        n_tavoli: +d.tables, id_piano: d.plan, scadenza: d.expires
+      }).eq('id', id));
+      if (r.ownerId && d.email && d.email.trim().toLowerCase() !== r.email.toLowerCase())
+        await api('cambia-email', { user_id: r.ownerId, email: d.email.trim() });
+      await q(sb.rpc('ensure_tavoli', { p_rid: id }));
+      await reload(); toast('Modifiche salvate');
     });
   },
   'creds'(id) {
     const r = db.restaurants.find(x => x.id === id);
+    if (!r.ownerId) {
+      openModal('Collega un account a ' + r.name, `
+        <p class="muted">Questo ristorante non ha ancora un account di accesso. Crealo ora.</p>
+        <label for="cE">Email</label><input id="cE" name="email" type="email" required>
+        <label for="cP">Password (min. 6 caratteri)</label><input id="cP" name="password" minlength="6" required>`, async d => {
+        if (emailTaken(d.email)) { toast('Esiste già un account con questa email'); return false; }
+        await api('collega-account', { id_ristorante: id, email: d.email.trim(), password: d.password });
+        await reload(); toast('Account creato');
+      });
+      return;
+    }
     openModal('Account di ' + r.name, `
       <p>Email: <b>${esc(r.email)}</b></p>
       <p class="muted" style="margin-top:6px">La password non è visibile perché è salvata cifrata. Se il ristoratore l'ha dimenticata, generane una nuova.</p>
@@ -1069,33 +1129,31 @@ const actions = {
     const r = db.restaurants.find(x => x.id === id);
     if (!(await ask('Nuova password', `Generare una nuova password per <b>${esc(r.name)}</b>? Quella attuale smetterà di funzionare.`, 'Genera'))) return;
     const pw = rnd(8);
-    r.passHash = await hash(pw); delete r.demo; save();
+    await api('reset-password', { user_id: r.ownerId, password: pw });
     openModal('Nuova password', `<p>Comunica al ristoratore questi dati. La password non verrà più mostrata.</p>
       <p style="margin-top:12px">Email: <b>${esc(r.email)}</b></p>
       <p>Password: <b class="mono">${esc(pw)}</b></p>`, null);
   },
   async 'del-rest'(id) {
     const r = db.restaurants.find(x => x.id === id);
-    if (!(await ask('Elimina ristorante', `Eliminare <b>${esc(r.name)}</b>, il suo menù e i suoi ordini? L'operazione non si può annullare.`, 'Elimina', true))) return;
-    db.restaurants = db.restaurants.filter(x => x.id !== id);
-    db.menu = db.menu.filter(m => m.rid !== id);
-    db.orders = db.orders.filter(o => o.rid !== id);
-    db.calls = db.calls.filter(c => c.rid !== id);
-    save(); refresh(); toast('Ristorante eliminato');
+    if (!(await ask('Elimina ristorante', `Eliminare <b>${esc(r.name)}</b>, il suo account, il suo menù e i suoi ordini? L'operazione non si può annullare.`, 'Elimina', true))) return;
+    await api('elimina-ristorante', { id_ristorante: id });
+    await reload(); toast('Ristorante eliminato');
   },
   'open-menu'(id) { menuRid = id; view = 'menu'; refresh(); window.scrollTo(0, 0); },
   async 'renew'(id) {
     const r = db.restaurants.find(x => x.id === id);
     const price = planOf(r.plan).price;
     if (!(await ask('Registra pagamento', `Registrare il pagamento di <b>${eur(price)}</b> per <b>${esc(r.name)}</b> e rinnovare di 1 mese?`, 'Registra'))) return;
-    r.expires = addMonths(r.expires > today() ? r.expires : today(), 1); r.suspended = false;
-    db.payments.push({ id: uid(), rid: r.id, name: r.name, amount: price, at: Date.now() });
-    save(); refresh(); toast('Pagamento registrato. Scadenza: ' + fdate(r.expires));
+    const exp = addMonths(r.expires > today() ? r.expires : today(), 1);
+    await q(sb.from('ristorante').update({ scadenza: exp, sospeso: false }).eq('id', id));
+    await q(sb.from('pagamento').insert({ id_ristorante: id, nome: r.name, importo: price }));
+    await reload(); toast('Pagamento registrato. Scadenza: ' + fdate(exp));
   },
-  'toggle'(id) {
+  async 'toggle'(id) {
     const r = db.restaurants.find(x => x.id === id);
-    r.suspended = !r.suspended; save(); refresh();
-    toast(r.suspended ? 'Abbonamento sospeso' : 'Abbonamento riattivato');
+    await q(sb.from('ristorante').update({ sospeso: !r.suspended }).eq('id', id));
+    await reload(); toast(r.suspended ? 'Abbonamento riattivato' : 'Abbonamento sospeso');
   },
   'edit-plan'(id) {
     const p0 = db.plans.find(x => x.id === id);
@@ -1103,93 +1161,92 @@ const actions = {
       <label for="pN">Nome</label><input id="pN" name="name" required value="${esc(p0.name)}">
       <label for="pP">Prezzo mensile (€)</label><input id="pP" name="price" type="number" step="1" min="0" required value="${p0.price}">
       <label for="pD">Descrizione</label><input id="pD" name="desc" value="${esc(p0.desc)}">`,
-      d => { const p = db.plans.find(x => x.id === id); p.name = d.name; p.price = +d.price; p.desc = d.desc; save(); refresh(); toast('Piano aggiornato'); });
+      async d => {
+        await q(sb.from('piano').update({ nome: d.name, prezzo: +d.price, descrizione: d.desc }).eq('id', id));
+        await reload(); toast('Piano aggiornato');
+      });
   },
 
   /* ---- admin: impostazioni ---- */
-  'a-baseurl'() {
-    const v = $('#baseUrl').value.trim();
-    if (v && !/^https?:\/\//i.test(v)) { toast("L'indirizzo deve iniziare con https://"); return; }
-    db.settings.baseUrl = v; save(); toast('Indirizzo salvato. Ristampa i QR dei tavoli');
-  },
   'a-pass'() {
     openModal('Cambia password admin', `
       <label for="ap1">Nuova password (min. 6 caratteri)</label><input id="ap1" name="p1" type="password" minlength="6" required autocomplete="new-password">
       <label for="ap2">Ripeti la password</label><input id="ap2" name="p2" type="password" minlength="6" required autocomplete="new-password">`, async d => {
       if (d.p1 !== d.p2) { toast('Le due password non coincidono'); return false; }
-      db.settings.adminHash = await hash(d.p1); save(); toast('Password aggiornata');
+      const { error } = await sb.auth.updateUser({ password: d.p1 });
+      if (error) throw new Error(humanError(error));
+      toast('Password aggiornata');
     });
   },
-  'a-export'() { download(`menupro-backup-${today()}.json`, new Blob([JSON.stringify(db, null, 2)], { type: 'application/json' })); },
-  'a-import'() { $('#importFile').click(); },
-  async 'a-reset'() {
-    if (!(await ask('Cancella tutti i dati', 'Cancellare <b>tutti</b> i dati (ristoranti, menù, foto, ordini)? Scarica prima un backup: l\'operazione non si può annullare.', 'Cancella tutto', true))) return;
-    localStorage.removeItem(KEY); adminSet(false); rSet(null); location.hash = ''; location.reload();
+  'a-export'() {
+    download(`menupro-backup-${today()}.json`, new Blob([JSON.stringify(db, null, 2)], { type: 'application/json' }));
   },
-  'a-logout'() { adminSet(false); refresh(); },
+  'a-logout'() { return doLogout(); },
 
   /* ---- menù: piatti e categorie (admin e ristoratore) ---- */
   'new-cat'(rid) {
-    openModal('Crea categoria', `<label for="ncN">Nome categoria</label><input id="ncN" name="name" required placeholder="Es. Menù bambini">`, d => {
+    openModal('Crea categoria', `<label for="ncN">Nome categoria</label><input id="ncN" name="name" required maxlength="100" placeholder="Es. Menù bambini">`, async d => {
       const name = d.name.trim();
       if (!name) return false;
       if (catsOf(rid).some(c => c.toLowerCase() === name.toLowerCase())) { toast('Questa categoria esiste già'); return false; }
-      addCat(rid, name); save(); refresh(); toast('Categoria creata');
+      await createCat(rid, name); await reload(); toast('Categoria creata');
     });
   },
   'new-item'(rid) {
-    openModal('Nuovo piatto', itemForm(rid), d => {
-      const x = itemData(rid, d);
+    openModal('Nuovo piatto', itemForm(rid), async d => {
+      const x = await itemData(rid, d);
       if (!x) { toast('Inserisci il nome della nuova categoria'); return false; }
-      const row = { id: uid(), rid, ...x };
-      db.menu.push(row);
-      if (!saveOrUndo(() => { db.menu = db.menu.filter(m => m !== row); })) return false;
-      refresh(); toast('Piatto aggiunto');
+      const pos = db.menu.filter(m => m.catId === x.id_categoria).length;
+      await q(sb.from('piatto').insert({ ...x, posizione: pos }));
+      await reload(); toast('Piatto aggiunto');
     });
   },
   'edit-item'(id) {
     const i0 = db.menu.find(x => x.id === id);
-    openModal('Modifica piatto', itemForm(i0.rid, i0), d => {
-      const x = itemData(i0.rid, d);
+    openModal('Modifica piatto', itemForm(i0.rid, i0), async d => {
+      const x = await itemData(i0.rid, d);
       if (!x) { toast('Inserisci il nome della nuova categoria'); return false; }
-      const idx = db.menu.findIndex(y => y.id === id), prev = db.menu[idx];
-      db.menu[idx] = { ...prev, ...x };
-      if (!saveOrUndo(() => { db.menu[idx] = prev; })) return false;
-      refresh(); toast('Piatto aggiornato');
+      await q(sb.from('piatto').update(x).eq('id', id));
+      await reload(); toast('Piatto aggiornato');
     });
   },
-  'dup-item'(id) {
+  async 'dup-item'(id) {
     const i = db.menu.find(x => x.id === id);
-    const copy = { ...i, id: uid(), name: i.name + ' (copia)', allergens: [...i.allergens], tags: [...i.tags] };
-    db.menu.splice(db.menu.indexOf(i) + 1, 0, copy);
-    if (!saveOrUndo(() => { db.menu = db.menu.filter(m => m !== copy); })) return;
-    refresh(); toast('Piatto duplicato: modificane il nome');
+    await q(sb.from('piatto').insert({
+      id_categoria: i.catId, nome: (i.name + ' (copia)').slice(0, 100), descrizione: i.desc, prezzo: i.price,
+      immagine: i.img || null, allergeni: i.allergens, tag: i.tags, consigliato: i.featured,
+      disponibile: i.available !== false, posizione: i.pos + 1
+    }));
+    await reload(); toast('Piatto duplicato: modificane il nome');
   },
   async 'del-item'(id) {
     const i = db.menu.find(x => x.id === id);
     if (!(await ask('Elimina piatto', `Eliminare <b>${esc(i.name)}</b> dal menù?`, 'Elimina', true))) return;
-    db.menu = db.menu.filter(x => x.id !== id); save(); refresh(); toast('Piatto eliminato');
+    await q(sb.from('piatto').delete().eq('id', id));
+    await reload(); toast('Piatto eliminato');
   },
-  'avail-item'(id) { const i = db.menu.find(x => x.id === id); i.available = i.available === false; save(); refresh(); toast(i.available === false ? 'Segnato come esaurito' : 'Di nuovo disponibile'); },
-  'cat-up'(n) { moveCat(+n, -1); },
-  'cat-down'(n) { moveCat(+n, 1); },
+  async 'avail-item'(id) {
+    const i = db.menu.find(x => x.id === id);
+    await q(sb.from('piatto').update({ disponibile: i.available === false }).eq('id', id));
+    await reload(); toast(i.available === false ? 'Di nuovo disponibile' : 'Segnato come esaurito');
+  },
+  'cat-up'(n) { return moveCat(+n, -1); },
+  'cat-down'(n) { return moveCat(+n, 1); },
   'cat-ren'(n) {
-    const rid = curRid(), old = catsOf(rid)[+n];
-    openModal('Rinomina categoria', `<label for="rcN">Nome</label><input id="rcN" name="name" required value="${esc(old)}">`, d => {
+    const rid = curRid(), r = db.restaurants.find(x => x.id === rid), old = r.cats[+n];
+    openModal('Rinomina categoria', `<label for="rcN">Nome</label><input id="rcN" name="name" required maxlength="100" value="${esc(old)}">`, async d => {
       const nn = d.name.trim(); if (!nn) return false;
-      if (catsOf(rid).some(c => c !== old && c.toLowerCase() === nn.toLowerCase())) { toast('Questa categoria esiste già'); return false; }
-      const order = catsOf(rid).map(c => c === old ? nn : c);
-      db.menu.forEach(m => { if (m.rid === rid && m.cat === old) m.cat = nn; });
-      db.restaurants.find(x => x.id === rid).cats = order;
-      save(); refresh(); toast('Categoria rinominata');
+      if (r.cats.some(c => c !== old && c.toLowerCase() === nn.toLowerCase())) { toast('Questa categoria esiste già'); return false; }
+      await q(sb.from('categoria').update({ nome: nn }).eq('id', r.catIds[old]));
+      await reload(); toast('Categoria rinominata');
     });
   },
   async 'cat-del'(n) {
-    const rid = curRid(), c = catsOf(rid)[+n];
+    const rid = curRid(), r = db.restaurants.find(x => x.id === rid), c = r.cats[+n];
     if (db.menu.some(m => m.rid === rid && m.cat === c)) { toast('Sposta o elimina prima i piatti di questa categoria'); return; }
     if (!(await ask('Elimina categoria', `Eliminare la categoria <b>${esc(c)}</b>?`, 'Elimina', true))) return;
-    db.restaurants.find(x => x.id === rid).cats = catsOf(rid).filter(x => x !== c);
-    save(); refresh(); toast('Categoria eliminata');
+    await q(sb.from('categoria').delete().eq('id', r.catIds[c]));
+    await reload(); toast('Categoria eliminata');
   },
 
   /* ---- foto del piatto (dentro il form) ---- */
@@ -1201,13 +1258,18 @@ const actions = {
   },
 
   /* ---- ristoratore ---- */
-  'r-next'(id) { const o = db.orders.find(x => x.id === id); o.status = o.status === 'nuovo' ? 'preparazione' : 'servito'; save(); refresh(); },
+  async 'r-next'(id) {
+    const o = db.orders.find(x => x.id === id);
+    await q(sb.from('ordine').update({ stato: o.status === 'nuovo' ? 'preparazione' : 'servito' }).eq('id', id));
+    await reload();
+  },
   async 'r-cancel'(id) {
     if (!(await ask('Annulla ordine', 'Annullare questo ordine? Il cliente vedrà che è stato annullato.', 'Annulla ordine', true))) return;
-    const o = db.orders.find(x => x.id === id); o.status = 'annullato'; o.unread = false; save(); refresh(); toast('Ordine annullato');
+    await q(sb.from('ordine').update({ stato: 'annullato', non_letto: false }).eq('id', id));
+    await reload(); toast('Ordine annullato');
   },
-  'r-read'(id) { db.orders.find(x => x.id === id).unread = false; save(); refresh(); },
-  'r-call-done'(id) { db.calls.find(x => x.id === id).done = true; save(); refresh(); },
+  async 'r-read'(id) { await q(sb.from('ordine').update({ non_letto: false }).eq('id', id)); await reload(); },
+  async 'r-call-done'(id) { await q(sb.from('chiamata').update({ fatto: true }).eq('id', id)); await reload(); },
   'r-sound'() { soundOn = !soundOn; if (soundOn) beep(); refresh(); },
   'r-print'(id) {
     const o = db.orders.find(x => x.id === id);
@@ -1225,16 +1287,14 @@ const actions = {
     const open = db.orders.filter(o => o.rid === rid && o.table === +n && isOpen(o));
     const total = round2(open.reduce((s, o) => s + orderTotal(o), 0));
     if (!(await ask('Chiudi il conto', `Chiudere il conto del tavolo ${n}? Totale <b>${eur(total)}</b>.`, 'Chiudi il conto'))) return;
-    open.forEach(o => o.status = 'chiuso');
-    db.calls.forEach(c => { if (c.rid === rid && c.table === +n) c.done = true; });
-    save(); refresh(); toast('Conto chiuso');
+    await q(sb.from('ordine').update({ stato: 'chiuso' }).in('id', open.map(o => o.id)));
+    await q(sb.from('chiamata').update({ fatto: true }).eq('id_ristorante', rid).eq('numero_tavolo', +n).eq('fatto', false));
+    await reload(); toast('Conto chiuso');
   },
   'r-qr'(n) {
     const rid = rSess(), url = tableUrl(rid, n);
-    const local = location.protocol === 'file:' && !db.settings.baseUrl;
     openModal('QR tavolo ' + n, `<div class="qrbox"><div id="qrBox"></div></div>
       <p class="qrlink">${esc(url)}</p>
-      ${local ? '<p class="warn">Stai aprendo il sito dal computer: questo QR non funzionerà sui telefoni finché il sito non sarà online. L\'amministratore deve impostare l\'indirizzo pubblico.</p>' : ''}
       <p style="margin-top:12px" class="btns"><button type="button" class="btn small" data-act="r-qr-dl" data-id="${n}">${ic('download', 15)} Scarica PNG</button>
       <a class="btn small ghost" href="${esc(url)}" target="_blank" rel="noopener">Apri come cliente</a></p>`, null);
     if (typeof QRCode !== 'undefined') new QRCode($('#qrBox'), { text: url, width: 220, height: 220 });
@@ -1263,8 +1323,8 @@ const actions = {
   },
   async 'r-regen'() {
     if (!(await ask('Rigenera i codici QR', 'Rigenerare tutti i codici QR? Quelli già stampati smetteranno di funzionare e dovrai stamparli di nuovo.', 'Rigenera', true))) return;
-    const r = curRest(); r.tokens = {}; ensureTokens(r);
-    save(); refresh(); toast('Codici rigenerati: stampa di nuovo i QR dei tavoli');
+    await q(sb.rpc('regen_tavoli', { p_rid: rSess() }));
+    await reload(); toast('Codici rigenerati: stampa di nuovo i QR dei tavoli');
   },
   'r-settings'() {
     const r = curRest();
@@ -1273,19 +1333,23 @@ const actions = {
       <label for="sC">Colore del menù cliente</label><input id="sC" name="color" type="color" value="${validColor(r.color)}">
       <label for="sP">Nuova password (lascia vuoto per non cambiarla)</label><input id="sP" name="password" type="password" minlength="6" autocomplete="new-password">`, async d => {
       const x = curRest();
-      x.tables = +d.tables; x.color = validColor(d.color); ensureTokens(x);
-      if (d.password) { x.passHash = await hash(d.password); delete x.demo; }
-      save(); refresh(); toast('Impostazioni salvate');
+      await q(sb.from('ristorante').update({ n_tavoli: +d.tables, colore: validColor(d.color) }).eq('id', x.id));
+      await q(sb.rpc('ensure_tavoli', { p_rid: x.id }));
+      if (d.password) {
+        const { error } = await sb.auth.updateUser({ password: d.password });
+        if (error) throw new Error(humanError(error));
+      }
+      await reload(); toast('Impostazioni salvate');
     });
   },
   'r-csv'() {
     const r = curRest();
-    const q = v => { let s = String(v); if (/^[=+\-@]/.test(s)) s = "'" + s; return `"${s.replace(/"/g, '""')}"`; };
+    const qt = v => { let s = String(v); if (/^[=+\-@]/.test(s)) s = "'" + s; return `"${s.replace(/"/g, '""')}"`; };
     const rows = [['N.', 'Data', 'Ora', 'Tavolo', 'Stato', 'Piatti', 'Nota', 'Totale €'],
       ...db.orders.filter(o => o.rid === r.id).sort((a, b) => a.at - b.at).map(o => [o.n, fdate(o.at), ftime(o.at), o.table, STATUS_LABEL[o.status], o.items.map(i => i.qty + 'x ' + i.name).join(' | '), o.note || '', orderTotal(o).toFixed(2).replace('.', ',')])];
-    download(`ordini-${today()}.csv`, new Blob(['\ufeff' + rows.map(x => x.map(q).join(';')).join('\n')], { type: 'text/csv;charset=utf-8' }));
+    download(`ordini-${today()}.csv`, new Blob(['\ufeff' + rows.map(x => x.map(qt).join(';')).join('\n')], { type: 'text/csv;charset=utf-8' }));
   },
-  'r-logout'() { rSet(null); refresh(); },
+  'r-logout'() { return doLogout(); },
 
   /* ---- cliente ---- */
   'c-help'() { openClient('help'); },
@@ -1296,52 +1360,56 @@ const actions = {
   'c-reset'() { cTags.clear(); cAvoid.clear(); refresh(); },
   'c-cat'(n) { document.getElementById('cat-' + n)?.scrollIntoView({ behavior: 'smooth' }); },
   'c-inc'(id) {
-    const i = db.menu.find(x => x.id === id);
+    const i = CD?.items.find(x => x.id === id);
     if (!i || i.available === false) return;
     cart[id] = Math.min(20, (cart[id] || 0) + 1); saveCart(); refresh();
   },
   'c-dec'(id) { cart[id] = (cart[id] || 0) - 1; if (cart[id] <= 0) delete cart[id]; saveCart(); refresh(); },
   async 'c-send'() {
-    const { rid, table, tok } = cur();
-    if (!tableOk(rid, table, tok)) { refresh(); return; }
-    const pick = () => db.menu.filter(m => m.rid === rid && cart[m.id] && m.available !== false).map(m => ({ name: m.name, price: m.price, qty: cart[m.id] }));
-    const first = pick();
-    if (!first.length) return;
-    if (db.orders.filter(o => o.rid === rid && o.table === table && o.status === 'nuovo').length >= 5) { toast('Ci sono già diversi ordini in attesa: attendi che vengano presi in carico'); return; }
-    const tot = round2(first.reduce((s, i) => s + i.price * i.qty, 0));
+    const D = CD;
+    if (!D || D.status !== 'ok') { refresh(); return; }
+    const lines = D.items.filter(m => cart[m.id] && m.available !== false);
+    if (!lines.length) return;
+    const tot = round2(lines.reduce((s, i) => s + i.price * cart[i.id], 0));
     if (!(await ask("Inviare l'ordine?", `Totale <b>${eur(tot)}</b>. Il ristorante lo riceve subito.`, 'Invia ordine'))) return;
-    if (!tableOk(rid, table, tok)) { refresh(); return; }
-    const items = pick();
-    if (!items.length) return;
-    const n = Math.max(0, ...db.orders.filter(o => o.rid === rid).map(o => o.n || 0)) + 1;
-    const o = { id: uid(), n, rid, table, items, note: cartNote.trim().slice(0, 300), status: 'nuovo', messages: [], unread: false, at: Date.now() };
-    db.orders.push(o); addMine(o.id);
+    const { data, error } = await sb.rpc('client_create_order', {
+      p_rid: D.rid, p_num: D.table, p_codice: D.tok,
+      p_items: lines.map(i => ({ id: i.id, qty: cart[i.id] })), p_nota: cartNote.trim().slice(0, 300)
+    });
+    if (error) {
+      toast(/Troppi/i.test(error.message) ? 'Ci sono già diversi ordini in attesa: attendi che vengano presi in carico' : "Non riesco a inviare l'ordine. Riprova.");
+      return;
+    }
+    addMine(data.id);
     cart = {}; cartNote = ''; saveCart();
-    cBanner = `Ordine #${n} inviato. Qui sotto vedi a che punto è.`;
-    save(); refresh();
+    cBanner = `Ordine #${data.n} inviato. Qui sotto vedi a che punto è.`;
+    await clientSync();
+    refresh();
   },
-  'c-msg'(id) {
-    const { rid, table, tok } = cur();
-    if (!tableOk(rid, table, tok)) { refresh(); return; }
+  async 'c-msg'(id) {
+    const D = CD; if (!D) return;
     const v = $('#msg-' + id)?.value.trim().slice(0, 200);
     if (!v) return;
-    const o = db.orders.find(x => x.id === id);
-    if (!o || !['nuovo', 'preparazione'].includes(o.status)) { refresh(); return; }
-    o.messages.push({ text: v, at: Date.now() }); o.unread = true;
-    save(); refresh(); toast('Messaggio inviato');
+    const { error } = await sb.rpc('client_add_message', { p_rid: D.rid, p_num: D.table, p_codice: D.tok, p_ordine: id, p_testo: v });
+    if (error) { toast('Messaggio non inviato. Riprova.'); return; }
+    await clientSync(); refresh(); toast('Messaggio inviato');
   },
-  'c-call'(type) {
-    const { rid, table, tok } = cur();
-    if (!tableOk(rid, table, tok)) { refresh(); return; }
-    if (db.calls.some(c => c.rid === rid && c.table === table && c.type === type && !c.done)) { toast('Richiesta già inviata, arriviamo subito'); return; }
-    db.calls.push({ id: uid(), rid, table, type, at: Date.now(), done: false });
-    cOpen = null; save(); refresh(); toast(type === 'conto' ? 'Conto richiesto' : 'Cameriere chiamato');
+  async 'c-call'(type) {
+    const D = CD; if (!D) return;
+    const { error } = await sb.rpc('client_call', { p_rid: D.rid, p_num: D.table, p_codice: D.tok, p_tipo: type });
+    if (error) { toast('Richiesta non inviata. Riprova.'); return; }
+    cOpen = null; await clientSync(); refresh();
+    toast(type === 'conto' ? 'Conto richiesto' : 'Cameriere chiamato');
   }
 };
 
+/* esegue l'azione e mostra eventuali errori */
 document.addEventListener('click', e => {
   const b = e.target.closest('[data-act]');
-  if (b && !b.disabled) actions[b.dataset.act]?.(b.dataset.id);
+  if (!b || b.disabled) return;
+  const fail = err => { console.error(err); toast(err.message || 'Operazione non riuscita'); };
+  try { const r = actions[b.dataset.act]?.(b.dataset.id); if (r && r.catch) r.catch(fail); }
+  catch (err) { fail(err); }
 });
 
 document.addEventListener('change', e => {
@@ -1351,7 +1419,7 @@ document.addEventListener('change', e => {
     if (!w.hidden) $('#newCat').focus();
     return;
   }
-  /* foto scelta dal dispositivo: la riduco e la comprimo */
+  /* foto scelta dal dispositivo: la riduco e la comprimo (viene caricata su Storage al salvataggio) */
   if (e.target.id === 'imgFile') {
     const f = e.target.files[0]; e.target.value = '';
     if (!f) return;
@@ -1383,24 +1451,12 @@ document.addEventListener('change', e => {
   /* modifica rapida del prezzo dalla lista del menù */
   const id = e.target.dataset?.price;
   if (id) {
-    const i = db.menu.find(x => x.id === id);
-    i.price = round2(Math.max(0, +e.target.value || 0)); e.target.value = i.price;
-    save(); toast('Prezzo aggiornato');
-    return;
-  }
-  /* import backup */
-  if (e.target.id === 'importFile') {
-    const f = e.target.files[0]; if (!f) return;
-    const rd = new FileReader();
-    rd.onload = async () => {
-      try {
-        const x = JSON.parse(rd.result);
-        if (!x || !Array.isArray(x.restaurants) || !Array.isArray(x.menu)) throw 0;
-        if (!(await ask('Importa backup', 'Importare il backup? I dati attuali verranno sostituiti.', 'Importa', true))) return;
-        db = x; save(); location.reload();
-      } catch { toast('File di backup non valido'); }
-    };
-    rd.readAsText(f); e.target.value = '';
+    const price = round2(Math.max(0, +e.target.value || 0));
+    e.target.value = price;
+    q(sb.from('piatto').update({ prezzo: price }).eq('id', id)).then(() => {
+      const i = db.menu.find(x => x.id === id); if (i) i.price = price;
+      toast('Prezzo aggiornato');
+    }).catch(err => toast(err.message));
   }
 });
 
@@ -1408,13 +1464,13 @@ document.addEventListener('input', e => {
   if (e.target.id === 'cNote') { cartNote = e.target.value; saveCart(); }
   if (e.target.id === 'cSearch') { cSearch = e.target.value; applySearch(); }
   if (e.target.id === 'rSearch') {
-    const q = e.target.value.trim().toLowerCase();
-    $$('tr[data-s]').forEach(tr => tr.hidden = !!q && !tr.dataset.s.includes(q));
+    const qs = e.target.value.trim().toLowerCase();
+    $$('tr[data-s]').forEach(tr => tr.hidden = !!qs && !tr.dataset.s.includes(qs));
   }
   if (e.target.id === 'mSearch') {
-    const q = e.target.value.trim().toLowerCase();
-    $$('.item[data-s]').forEach(it => it.hidden = !!q && !it.dataset.s.includes(q));
-    $$('.panel.cat').forEach(p => p.hidden = !!q && ![...p.querySelectorAll('.item')].some(i => !i.hidden));
+    const qs = e.target.value.trim().toLowerCase();
+    $$('.item[data-s]').forEach(it => it.hidden = !!qs && !it.dataset.s.includes(qs));
+    $$('.panel.cat').forEach(p => p.hidden = !!qs && ![...p.querySelectorAll('.item')].some(i => !i.hidden));
   }
 });
 
@@ -1423,7 +1479,11 @@ document.addEventListener('keydown', e => {
   if (!$('#modalBg').hidden) closeModal();
   else if (cOpen && location.hash.startsWith('#/c/')) { cOpen = null; cDish = null; cBanner = ''; refresh(); }
 });
-sb.from('piano').select('*').then(r => console.log('Supabase:', r));
 
 /* ===== Avvio ===== */
-(async () => { hydrateIcons(); await migrate(); route(); })();
+(async () => {
+  hydrateIcons();
+  try { await initAuth(); } catch (e) { console.error(e); }
+  ready = true;
+  route();
+})();
