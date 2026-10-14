@@ -1,1489 +1,1777 @@
-/* =====================================================
-   MenuPro v3 · Admin + Ristoratore + Cliente (solo da QR)
-   Dati su Supabase: database, login, realtime e foto.
-   ===================================================== */
+// =====================================================
+// MenuPro – Versione collegata a Supabase
+// =====================================================
 
-/* >>> INCOLLA QUI I DUE VALORI (Supabase → Project Settings → API) <<<
-   Usa la chiave "anon / publishable". MAI la service_role. */
-const SUPABASE_URL = 'https://kebsdyfarcfxejrvitvu.supabase.co';   // es. https://abcdefgh.supabase.co
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtlYnNkeWZhcmNmeGVqcnZpdHZ1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE4MDQwODEsImV4cCI6MjEwNzM4MDA4MX0.0-cCg_8oPtr2FesBtAODVAQEmWX1U5dqYxBcAY_-zf8';
-
-if (!/^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/i.test(SUPABASE_URL) || SUPABASE_KEY.startsWith('INCOLLA')) {
-  document.body.innerHTML = '<p style="padding:24px;font-family:sans-serif">Configura <b>SUPABASE_URL</b> e <b>SUPABASE_KEY</b> all\'inizio di script.js</p>';
-  throw new Error('Configurazione Supabase mancante');
-}
-const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-
-const THEME_KEY = 'menupro_theme';
-const $ = s => document.querySelector(s);
-const $$ = s => [...document.querySelectorAll(s)];
-
-/* ===== Date, soldi, testo ===== */
-const pad = n => String(n).padStart(2, '0');
-const dkey = t => { const d = new Date(t); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
-const today = () => dkey(Date.now());
-const pd = d => (typeof d === 'string' && d.length === 10) ? new Date(d + 'T00:00:00') : new Date(d);
-const addMonths = (d, n) => {
-  const x = pd(d), day = x.getDate();
-  x.setDate(1); x.setMonth(x.getMonth() + n);
-  x.setDate(Math.min(day, new Date(x.getFullYear(), x.getMonth() + 1, 0).getDate()));
-  return dkey(x);
-};
-const uid = () => Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-3);
-const eur = n => Number(n).toLocaleString('it-IT', { style: 'currency', currency: 'EUR' });
-const fdate = d => pd(d).toLocaleDateString('it-IT');
-const ftime = t => new Date(t).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
-const isToday = t => dkey(t) === today();
-const ago = t => { const m = Math.floor((Date.now() - t) / 60000); return m < 1 ? 'adesso' : m < 60 ? m + ' min' : Math.floor(m / 60) + ' h ' + pad(m % 60) + ' min'; };
-const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const validColor = c => /^#[0-9a-f]{6}$/i.test(c) ? c : '#0f5c4a';
-const round2 = n => Math.round(n * 100) / 100;
-
-/* ===== Icone (SVG inline) ===== */
-const IC = {
-  home: '<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
-  store: '<path d="M3 9l1.5-5h15L21 9"/><path d="M4 9v11h16V9"/><path d="M3 9a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0"/>',
-  card: '<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/>',
-  book: '<path d="M4 4h6a2 2 0 0 1 2 2v14a2 2 0 0 0-2-2H4z"/><path d="M20 4h-6a2 2 0 0 0-2 2v14a2 2 0 0 1 2-2h6z"/>',
-  settings: '<path d="M4 6h8M18 6h2M4 12h2M12 12h8M4 18h10M20 18h0"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/>',
-  orders: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/>',
-  grid: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
-  chart: '<path d="M4 20V10M10 20V4M16 20v-8M22 20H2"/>',
-  moon: '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>',
-  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
-  logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5M21 12H9"/>',
-  search: '<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>',
-  filter: '<path d="M3 5h18l-7 8v6l-4 2v-8z"/>',
-  bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/>',
-  cart: '<circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M2 3h3l2.7 12.4a2 2 0 0 0 2 1.6h7.7a2 2 0 0 0 2-1.5L21 8H6"/>',
-  plus: '<path d="M12 5v14M5 12h14"/>',
-  minus: '<path d="M5 12h14"/>',
-  check: '<path d="m5 12 5 5L20 7"/>',
-  x: '<path d="M18 6 6 18M6 6l12 12"/>',
-  print: '<path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="9" rx="2"/><path d="M7 15h10v6H7z"/>',
-  edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
-  trash: '<path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/>',
-  copy: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>',
-  up: '<path d="m6 15 6-6 6 6"/>',
-  down: '<path d="m6 9 6 6 6-6"/>',
-  download: '<path d="M12 3v12M7 10l5 5 5-5M4 21h16"/>',
-  qr: '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3M21 14v1M14 21h1M18 18h3v3"/>',
-  star: '<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z"/>',
-  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
-  volume: '<path d="M11 5 6 9H3v6h3l5 4z"/><path d="M16 9a4 4 0 0 1 0 6M19 6a8 8 0 0 1 0 12"/>',
-  mute: '<path d="M11 5 6 9H3v6h3l5 4z"/><path d="m16 9 5 6M21 9l-5 6"/>',
-  ext: '<path d="M14 4h6v6M20 4 10 14M18 14v6H4V6h6"/>',
-  pause: '<rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/>',
-  wave: '<path d="M7 11V5a2 2 0 0 1 4 0v5M11 10V4a2 2 0 0 1 4 0v7M15 10V6a2 2 0 0 1 4 0v8a7 7 0 0 1-7 7h-1a7 7 0 0 1-5.6-2.8L3 14a2 2 0 0 1 3-2.6L7 12"/>',
-  image: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/>'
-};
-const ic = (n, s = 18) => `<svg class="ic" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${IC[n] || ''}</svg>`;
-const hydrateIcons = () => $$('i[data-ic]').forEach(i => i.outerHTML = ic(i.dataset.ic));
-
-/* ===== Tema chiaro / scuro (solo aree admin e ristoratore) ===== */
-const applyTheme = t => {
-  document.documentElement.dataset.theme = t;
-  const m = document.querySelector('meta[name=theme-color]');
-  if (m) m.content = t === 'dark' ? '#0b1612' : '#0f5c4a';
-};
-const getTheme = () => {
-  try { const s = localStorage.getItem(THEME_KEY); if (s) return s; } catch { }
-  return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-};
-applyTheme(getTheme());
-
-/* ===== Colore del ristorante (area cliente) ===== */
-const hx = c => [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16));
-const toHex = a => '#' + a.map(v => Math.round(v).toString(16).padStart(2, '0')).join('');
-const mix = (c, t, p) => { const a = hx(c), b = hx(t); return toHex(a.map((v, i) => v * (1 - p) + b[i] * p)); };
-const lum = c => {
-  const [r, g, b] = hx(c).map(v => { v /= 255; return v <= .03928 ? v / 12.92 : Math.pow((v + .055) / 1.055, 2.4); });
-  return .2126 * r + .7152 * g + .0722 * b;
-};
-function setBrand(c) {
-  const s = document.body.style;
-  s.setProperty('--brand', c);
-  s.setProperty('--brand-2', mix(c, '#ffffff', .89));
-  s.setProperty('--brand-text', lum(c) > .2 ? mix(c, '#000000', .4) : c);
-  s.setProperty('--on', lum(c) > .45 ? '#16231d' : '#ffffff');
-  const m = document.querySelector('meta[name=theme-color]'); if (m) m.content = c;
-}
-function clearBrand() {
-  ['--brand', '--brand-2', '--brand-text', '--on'].forEach(v => document.body.style.removeProperty(v));
-  applyTheme(getTheme());
-}
-
-/* ===== Foto dei piatti ===== */
-const validImg = v => typeof v === 'string' && /^(https?:\/\/\S+|data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+)$/i.test(v) ? v : '';
-const imgCache = new Map();
-function imgSrc(v) {
-  if (!v) return '';
-  if (!v.startsWith('data:')) return v;
-  let u = imgCache.get(v);
-  if (!u) {
-    try {
-      const [h, b] = v.split(','), mime = h.match(/data:(.*?);/)[1], bin = atob(b), arr = new Uint8Array(bin.length);
-      for (let k = 0; k < bin.length; k++) arr[k] = bin.charCodeAt(k);
-      u = URL.createObjectURL(new Blob([arr], { type: mime }));
-      imgCache.set(v, u);
-    } catch { return ''; }
+const cfg = window.MENUPRO_CONFIG || {};
+let sb = null;
+try {
+  if (window.supabase && cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY &&
+      !String(cfg.SUPABASE_ANON_KEY).includes('INCOLLA')) {
+    sb = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
+  } else {
+    console.warn('Supabase non configurato correttamente in config.js');
   }
-  return u;
-}
-function loadImage(file) {
-  return new Promise((res, rej) => {
-    const u = URL.createObjectURL(file), im = new Image();
-    im.onload = () => { URL.revokeObjectURL(u); res(im); };
-    im.onerror = () => { URL.revokeObjectURL(u); rej(new Error('img')); };
-    im.src = u;
-  });
-}
-/* riduce la foto a 640 px e la comprime in JPEG */
-async function compressImage(file, max = 640, q = .72) {
-  const im = await loadImage(file);
-  const k = Math.min(1, max / Math.max(im.width, im.height));
-  const c = document.createElement('canvas');
-  c.width = Math.max(1, Math.round(im.width * k)); c.height = Math.max(1, Math.round(im.height * k));
-  const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
-  g.drawImage(im, 0, 0, c.width, c.height);
-  return c.toDataURL('image/jpeg', q);
-}
-/* carica la foto su Supabase Storage (bucket "piatti") e restituisce il link pubblico */
-async function uploadImg(rid, dataUrl) {
-  const blob = await (await fetch(dataUrl)).blob();
-  const path = `${rid}/${uid()}.jpg`;
-  const { error } = await sb.storage.from('piatti').upload(path, blob, { contentType: 'image/jpeg', cacheControl: '31536000' });
-  if (error) throw new Error('Caricamento foto non riuscito: ' + humanError(error));
-  return sb.storage.from('piatti').getPublicUrl(path).data.publicUrl;
-}
-/* se un link non si carica, al suo posto compare un'icona */
-document.addEventListener('error', e => {
-  const t = e.target;
-  if (t && t.tagName === 'IMG' && t.classList.contains('dimg')) {
-    const s = document.createElement('span'); s.className = 'imgbad'; s.innerHTML = ic('image', 24); t.replaceWith(s);
-  }
-}, true);
-
-/* ===== Costanti ===== */
-const ALLERGENS = ['Glutine', 'Crostacei', 'Uova', 'Pesce', 'Arachidi', 'Soia', 'Latte e derivati', 'Frutta a guscio', 'Sedano', 'Senape', 'Sesamo', 'Solfiti', 'Lupini', 'Molluschi'];
-const TAGS = ['Vegetariano', 'Vegano', 'Senza glutine', 'Piccante'];
-const STATUS_LABEL = { nuovo: 'Ricevuto', preparazione: 'In preparazione', servito: 'Servito', chiuso: 'Chiuso', annullato: 'Annullato' };
-
-/* password temporanee */
-const rnd = n => [...crypto.getRandomValues(new Uint8Array(n))].map(b => 'abcdefghjkmnpqrstuvwxyz23456789'[b % 31]).join('');
-
-/* =====================================================
-   DATI (Supabase)
-   Il database viene copiato in "db" con la stessa forma di prima,
-   così le schermate restano uguali. Ogni modifica va prima su Supabase.
-   ===================================================== */
-let db = { plans: [], restaurants: [], menu: [], orders: [], calls: [], payments: [], orderCount: 0 };
-let me = null;          // utente collegato: { id, email, ruolo }
-let ready = false;
-
-function humanError(e) {
-  const m = (e && e.message) || String(e);
-  if (e && e.code === '42501') return 'Non hai i permessi per questa operazione';
-  if (e && e.code === '23505') return 'Esiste già un elemento con questo nome';
-  if (e && e.code === '23503') return 'Operazione non possibile: ci sono dati collegati';
-  if (/Failed to fetch|NetworkError|Load failed/i.test(m)) return 'Connessione assente: riprova';
-  return m;
-}
-/* esegue una richiesta Supabase e lancia un errore leggibile se fallisce */
-async function q(p) {
-  const { data, error } = await p;
-  if (error) { console.error(error); throw new Error(humanError(error)); }
-  return data;
-}
-/* chiama la funzione serverless di Vercel (solo amministratore) */
-async function api(action, payload = {}) {
-  const { data: { session } } = await sb.auth.getSession();
-  const res = await fetch('/api/utenti', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (session?.access_token || '') },
-    body: JSON.stringify({ action, ...payload })
-  });
-  const j = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(j.error || 'Operazione non riuscita');
-  return j;
+} catch (e) {
+  console.error('Errore init Supabase:', e);
 }
 
-async function loadData() {
-  const T = (t, s = '*') => sb.from(t).select(s);
-  const res = await Promise.all([
-    T('piano'),
-    T('ristorante').order('created_on'),
-    T('utente'),
-    T('categoria'),
-    T('piatto', '*, categoria(nome, id_ristorante)'),
-    T('tavolo'),
-    T('pagamento').order('created_on', { ascending: false }).limit(200),
-    T('chiamata').eq('fatto', false),
-    T('ordine', '*, riga_ordine(*), messaggio(*)').order('created_on', { ascending: false }).limit(1000),
-    sb.from('ordine').select('id', { count: 'exact', head: true })
-  ]);
-  const bad = res.find(x => x.error);
-  if (bad) { console.error(bad.error); throw new Error(humanError(bad.error)); }
-  const [pi, ri, ut, ca, pt, tv, pg, ch, od, oc] = res;
+let currentUser = null;
+let currentRistorante = null;
+let cart = [];
+let currentPeriod = 'oggi';
+let currentSala = 0;
+let menuFilterCat = 'tutti';
+let lastOrdineId = null;
 
-  const emailOf = {};
-  ut.data.forEach(u => emailOf[u.id] = u.email);
+let chartRicaviAdmin = null;
+let chartPianiAdmin = null;
+let chartIncassiRist = null;
+let chartStatiRist = null;
 
-  db.plans = pi.data.map(p => ({ id: p.id, name: p.nome, price: +p.prezzo, desc: p.descrizione }));
-
-  db.restaurants = ri.data.map(r => {
-    const cs = ca.data.filter(c => c.id_ristorante === r.id)
-      .sort((a, b) => a.posizione - b.posizione || a.nome.localeCompare(b.nome));
-    const tokens = {};
-    tv.data.filter(t => t.id_ristorante === r.id).forEach(t => tokens[t.numero] = t.codice_qr);
-    return {
-      id: r.id, name: r.nome, owner: r.titolare, ownerId: r.id_proprietario,
-      email: emailOf[r.id_proprietario] || '', city: r.citta, tables: r.n_tavoli,
-      plan: r.id_piano, expires: r.scadenza, suspended: r.sospeso, color: r.colore,
-      cats: cs.map(c => c.nome), catIds: Object.fromEntries(cs.map(c => [c.nome, c.id])), tokens
-    };
-  });
-
-  db.menu = pt.data.map(p => ({
-    id: p.id, rid: p.categoria.id_ristorante, cat: p.categoria.nome, catId: p.id_categoria,
-    name: p.nome, desc: p.descrizione, price: +p.prezzo, img: p.immagine || '',
-    allergens: p.allergeni || [], tags: p.tag || [], featured: p.consigliato,
-    available: p.disponibile, pos: p.posizione
-  })).sort((a, b) => a.pos - b.pos || a.name.localeCompare(b.name));
-
-  db.payments = pg.data.map(p => ({ id: p.id, rid: p.id_ristorante, name: p.nome, amount: +p.importo, at: new Date(p.created_on).getTime() }));
-  db.calls = ch.data.map(c => ({ id: c.id, rid: c.id_ristorante, table: c.numero_tavolo, type: c.tipo, done: c.fatto, at: new Date(c.created_on).getTime() }));
-  db.orders = od.data.map(o => ({
-    id: o.id, n: o.numero, rid: o.id_ristorante, table: o.numero_tavolo, status: o.stato,
-    note: o.nota || '', unread: o.non_letto, at: new Date(o.created_on).getTime(),
-    items: (o.riga_ordine || []).map(r => ({ name: r.nome_piatto, price: +r.prezzo_pagato, qty: r.quantita_piatto })),
-    messages: (o.messaggio || []).sort((a, b) => new Date(a.created_on) - new Date(b.created_on))
-      .map(m => ({ text: m.testo, at: new Date(m.created_on).getTime() }))
-  }));
-  db.orderCount = oc.count ?? db.orders.length;
-}
-/* ricarica i dati e ridisegna */
-async function reload() { await loadData(); route(); }
-
-/* ===== Login ===== */
-async function fetchMe(id) {
-  const { data } = await sb.from('utente').select('id,email,ruolo').eq('id', id).maybeSingle();
-  return data || null;
-}
-async function doLogin(email, pw, ruolo) {
-  const { data, error } = await sb.auth.signInWithPassword({ email, password: pw });
-  if (error) throw new Error('Email o password non corretti.');
-  const u = await fetchMe(data.user.id);
-  if (!u || u.ruolo !== ruolo) {
-    await sb.auth.signOut(); me = null;
-    throw new Error(ruolo === 'admin' ? 'Questo account non è un amministratore.' : 'Questo account non è un ristoratore.');
-  }
-  me = u;
-  await loadData();
-  subscribeRealtime();
-  route();
-}
-async function doLogout() {
-  unsubscribeRealtime();
-  await sb.auth.signOut();
-  me = null;
-  db = { plans: [], restaurants: [], menu: [], orders: [], calls: [], payments: [], orderCount: 0 };
-  route();
-}
-async function initAuth() {
-  const { data: { session } } = await sb.auth.getSession();
-  if (!session) return;
-  me = await fetchMe(session.user.id);
-  if (me) { try { await loadData(); } catch (e) { console.error(e); } subscribeRealtime(); }
-}
-sb.auth.onAuthStateChange(ev => { if (ev === 'SIGNED_OUT' && me) { me = null; unsubscribeRealtime(); if (ready) route(); } });
-
-/* ===== Aggiornamento live per il ristoratore ===== */
-let rtChan = null, rtTimer = null;
-function unsubscribeRealtime() { if (rtChan) { sb.removeChannel(rtChan); rtChan = null; } }
-function subscribeRealtime() {
-  unsubscribeRealtime();
-  if (!me || me.ruolo !== 'ristoratore') return;
-  rtChan = sb.channel('menupro-live');
-  ['ordine', 'riga_ordine', 'messaggio', 'chiamata'].forEach(t =>
-    rtChan.on('postgres_changes', { event: '*', schema: 'public', table: t }, () => { clearTimeout(rtTimer); rtTimer = setTimeout(liveReload, 500); }));
-  rtChan.subscribe();
-}
-async function liveReload() {
-  if (!me) return;
-  const sig = () => Math.max(0, ...db.orders.map(o => o.n)) + db.orders.filter(o => o.unread).length + db.calls.length;
-  const before = sig();
-  try { await loadData(); } catch (e) { console.error(e); return; }
-  if ($('#modalBg').hidden && !focusedInput()) route();
-  if (me.ruolo === 'ristoratore' && location.hash.startsWith('#/ristoratore') && sig() > before) { toast('Nuova richiesta in arrivo'); beep(); }
-}
-
-/* ===== Helper di dominio ===== */
-const planOf = id => db.plans.find(p => p.id === id) || { name: '—', price: 0 };
-const statusOf = r => r.suspended ? 'sospeso' : (r.expires < today() ? 'scaduto' : 'attivo');
-const restActive = r => statusOf(r) === 'attivo';
-const badge = r => `<span class="badge ${statusOf(r)}">${statusOf(r)}</span>`;
-const orderTotal = o => round2(o.items.reduce((s, i) => s + i.price * i.qty, 0));
-const emailTaken = (email, exceptId) => db.restaurants.some(r => r.id !== exceptId && r.email && r.email.toLowerCase() === String(email).trim().toLowerCase());
-const siteUrl = () => location.origin + location.pathname;
-const isOpen = o => !['chiuso', 'annullato'].includes(o.status);
-const focusedInput = () => { const a = document.activeElement; return !!a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName); };
-
-/* Ogni tavolo ha un codice segreto: l'area cliente si apre solo con il link/QR completo */
-const tableUrl = (rid, n) => {
-  const r = db.restaurants.find(x => x.id === rid);
-  return `${siteUrl()}#/c/${rid}/${n}/${r?.tokens?.[n] || ''}`;
+const PIANI = {
+  base: { nome: 'Base', prezzo: 29 },
+  pro: { nome: 'Pro', prezzo: 59 },
+  enterprise: { nome: 'Enterprise', prezzo: 129 }
 };
 
-const infoHtml = i => {
-  const a = i.allergens || [], t = i.tags || [];
-  return (t.length ? `<div class="tags">${t.map(x => `<span class="tag">${esc(x)}</span>`).join('')}</div>` : '')
-    + (a.length ? `<small class="allg">Allergeni: ${a.map(esc).join(', ')}</small>` : '');
-};
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => document.querySelectorAll(s);
 
-/* ===== Categorie ===== */
-const catsOf = rid => db.restaurants.find(x => x.id === rid)?.cats || [];
-async function createCat(rid, name) {
-  const r = db.restaurants.find(x => x.id === rid);
-  const row = await q(sb.from('categoria').insert({ id_ristorante: rid, nome: name, posizione: r.cats.length }).select().single());
-  r.cats.push(name); r.catIds[name] = row.id;
-  return row.id;
-}
-async function moveCat(n, dir) {
-  const rid = curRid(), r = db.restaurants.find(x => x.id === rid), list = [...r.cats], j = n + dir;
-  if (j < 0 || j >= list.length) return;
-  [list[n], list[j]] = [list[j], list[n]];
-  await Promise.all(list.map((c, i) => q(sb.from('categoria').update({ posizione: i }).eq('id', r.catIds[c]))));
-  await reload();
-}
-
-/* ===== Notifiche ===== */
 function toast(msg) {
-  const t = $('#toast'); t.textContent = msg; t.hidden = false;
-  clearTimeout(toast.t); toast.t = setTimeout(() => t.hidden = true, 2800);
+  const t = $('#toast');
+  if (!t) return;
+  t.textContent = msg;
+  t.classList.remove('hidden');
+  setTimeout(() => t.classList.add('hidden'), 2800);
 }
-let soundOn = true, actx;
-function beep() {
-  if (!soundOn) return;
+
+function uid() {
+  return crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2);
+}
+
+function formatPrice(n) {
+  return '€' + Number(n).toFixed(2).replace('.', ',');
+}
+
+function formatTime(iso) {
+  return new Date(iso).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+// =====================================================
+// SUPABASE HELPERS
+// =====================================================
+
+async function loadRistoranti() {
+  if (!sb) return [];
+  const { data, error } = await sb.from('ristoranti').select('*').order('creato', { ascending: false });
+  if (error) { console.error(error); toast('Errore caricamento ristoranti'); return []; }
+  return data || [];
+}
+
+async function loadRistoranteFull(id) {
+  const { data: r, error } = await sb.from('ristoranti').select('*').eq('id', id).single();
+  if (error || !r) return null;
+
+  const [tavoli, piatti, categorie, ordini, pagamenti] = await Promise.all([
+    sb.from('tavoli').select('*').eq('id_ristorante', id).order('numero'),
+    sb.from('piatti').select('*').eq('id_ristorante', id).order('nome'),
+    sb.from('categorie').select('*').eq('id_ristorante', id).order('posizione'),
+    sb.from('ordini').select('*').eq('id_ristorante', id).order('created_at', { ascending: false }),
+    sb.from('pagamenti_abbonamento').select('*').eq('id_ristorante', id).order('data', { ascending: false })
+  ]);
+
+  r.tavoli = tavoli.data || [];
+  r.menu = (piatti.data || []).map(p => ({
+    ...p,
+    allergeni: p.allergeni || []
+  }));
+  r.categorie = (categorie.data || []).map(c => c.nome);
+  if (!r.categorie.length) r.categorie = ['Antipasti', 'Primi', 'Secondi', 'Dolci', 'Bevande'];
+  r.ordini = (ordini.data || []).map(o => ({
+    ...o,
+    items: o.items || [],
+    createdAt: o.created_at
+  }));
+  r.pagamenti = pagamenti.data || [];
+  r.sale = r.sale || ['Sala principale'];
+  return r;
+}
+
+async function getRistorante(id) {
+  return loadRistoranteFull(id);
+}
+
+// =====================================================
+// LOGIN
+// =====================================================
+
+async function enterAsAdmin(email) {
+  currentUser = { role: 'admin', email: email || 'admin@menupro.it' };
+  $('#login-screen').classList.add('hidden');
+  $('#app-admin').classList.remove('hidden');
+  $('#admin-user-email').textContent = currentUser.email;
   try {
-    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
-    [[880, 0], [1175, .18]].forEach(([f, d]) => {
-      const o = actx.createOscillator(), g = actx.createGain();
-      o.connect(g); g.connect(actx.destination); o.frequency.value = f;
-      const t0 = actx.currentTime + d;
-      g.gain.setValueAtTime(.18, t0);
-      g.gain.exponentialRampToValueAtTime(.001, t0 + .4);
-      o.start(t0); o.stop(t0 + .4);
+    await renderAdminDashboard();
+    await renderAdminTable();
+    await renderAbbonamenti();
+    await renderMieiIncassi();
+    await populateIncassiSelect();
+  } catch (e) {
+    console.error('Errore render admin:', e);
+  }
+  return true;
+}
+
+async function enterAsRistoratore(r) {
+  currentRistorante = await loadRistoranteFull(r.id || r.ristoranteId);
+  currentUser = { role: 'ristoratore', email: r.email, ristoranteId: r.id || r.ristoranteId };
+  $('#login-screen').classList.add('hidden');
+  $('#app-ristoratore').classList.remove('hidden');
+  $('#rist-nome-sidebar').textContent = (currentRistorante && currentRistorante.nome) || r.nome || 'Ristorante';
+  $('#rist-user-email').textContent = r.email;
+  await renderRistDashboard();
+  await renderMenuTable();
+  await renderOrdiniKanban();
+  await renderTavoli();
+  return true;
+}
+
+async function doLogin(email, pass) {
+  email = (email || '').trim().toLowerCase();
+  pass = (pass || '').trim();
+
+  if (!pass) {
+    toast('Inserisci la password');
+    return false;
+  }
+
+  // ========== 1) API server-side /api/utenti ==========
+  try {
+    const resp = await fetch('/api/utenti', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'login', email, password: pass })
     });
-  } catch { }
-}
-function download(name, blob) {
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob); a.download = name; a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1500);
+    const json = await resp.json().catch(() => null);
+    if (json && json.ok && json.user) {
+      if (json.user.ruolo === 'admin') {
+        return await enterAsAdmin(json.user.email);
+      }
+      if (json.user.ruolo === 'ristoratore') {
+        // se l'API non manda ristoranteId, cercalo per email
+        if (!json.user.ristoranteId && !json.user.id && sb) {
+          const { data: r } = await sb.from('ristoranti').select('*').eq('email', json.user.email).maybeSingle();
+          if (r) return await enterAsRistoratore(r);
+        }
+        return await enterAsRistoratore(json.user);
+      }
+    }
+  } catch (e) {
+    console.warn('API /api/utenti non disponibile, uso fallback client:', e.message);
+  }
+
+  // ========== 2) Fallback locale: password admin ==========
+  if (pass.toLowerCase() === 'admin') {
+    return await enterAsAdmin(email || 'admin@menupro.it');
+  }
+
+  // ========== 3) Fallback client: tabella utenti ==========
+  if (!email) {
+    toast('Inserisci email e password');
+    return false;
+  }
+
+  if (!sb) {
+    toast('Configura config.js (ANON_KEY) oppure le env su Vercel');
+    return false;
+  }
+
+  try {
+    // prima cerca in utenti (ristoratore)
+    const { data: u } = await sb
+      .from('utenti')
+      .select('*')
+      .eq('email', email)
+      .eq('password_hash', pass)
+      .maybeSingle();
+
+    if (u && u.ruolo === 'admin') {
+      return await enterAsAdmin(u.email);
+    }
+
+    if (u && u.ruolo === 'ristoratore') {
+      const { data: r } = await sb.from('ristoranti').select('*').eq('email', email).maybeSingle();
+      if (r) return await enterAsRistoratore(r);
+      toast('Utente trovato ma nessun ristorante collegato a questa email');
+      return false;
+    }
+
+    // poi cerca direttamente in ristoranti (compatibilità)
+    const { data: r, error } = await sb
+      .from('ristoranti')
+      .select('*')
+      .eq('email', email)
+      .eq('password', pass)
+      .maybeSingle();
+
+    if (error) {
+      console.error(error);
+      toast('Errore database: ' + (error.message || 'controlla config.js'));
+      return false;
+    }
+    if (r) return await enterAsRistoratore(r);
+  } catch (e) {
+    console.error(e);
+    toast('Errore di connessione');
+    return false;
+  }
+
+  toast('Credenziali non valide. Prova: password admin');
+  return false;
 }
 
-/* ===== Finestre di dialogo ===== */
-let onSave = null, onCancel = null;
-let cOpen = null, cDish = null;   // stato del cliente (pannello aperto e piatto mostrato)
-const syncLock = () => document.body.classList.toggle('lock', !$('#modalBg').hidden || (!!cOpen && !$('#clientApp').hidden));
-function openModal(title, html, cb, opt = {}) {
-  $('#modalTitle').textContent = title;
-  $('#modalBody').innerHTML = html;
-  const s = $('#modalSave');
-  s.hidden = !cb; s.disabled = false; s.textContent = opt.ok || 'Salva'; s.classList.toggle('danger', !!opt.danger);
-  $('#modalCancel').textContent = cb ? 'Annulla' : 'Chiudi';
-  onSave = cb; onCancel = opt.onCancel || null;
-  $('#modalBg').hidden = false;
-  syncLock();
-  (opt.focusSave ? s : $('#modalBody').querySelector('input:not([type=checkbox]):not([type=hidden]):not([type=file]),select,textarea'))?.focus();
-}
-function closeModal() {
-  const c = onCancel; onSave = null; onCancel = null;
-  $('#modalBg').hidden = true; syncLock();
-  if (c) c();
-}
-/* conferma con la finestra del sito, al posto di confirm() */
-const ask = (title, text, ok = 'Conferma', danger = false) => new Promise(res =>
-  openModal(title, `<p>${text}</p>`, () => { setTimeout(() => res(true)); }, { ok, danger, focusSave: true, onCancel: () => res(false) }));
-
-$('#modalCancel').onclick = closeModal;
-$('#modalBg').addEventListener('click', e => { if (e.target.id === 'modalBg') closeModal(); });
-$('#modal').addEventListener('submit', async e => {
+$('#login-form').addEventListener('submit', async (e) => {
   e.preventDefault();
-  const d = {};
-  for (const [k, v] of new FormData(e.target)) d[k] = k in d ? [].concat(d[k], v) : v;
-  const sv = $('#modalSave');
-  sv.disabled = true;
-  let res;
-  try { res = onSave ? await onSave(d) : undefined; }
-  catch (err) { console.error(err); toast(err.message || 'Operazione non riuscita'); sv.disabled = false; return; }
-  sv.disabled = false;
-  if (res === false) return;   // false = la finestra resta aperta
-  onCancel = null; closeModal();
+  await doLogin($('#login-email').value, $('#login-password').value);
 });
 
-/* ===== Router (in base all'indirizzo dopo #) ===== */
-function route() {
-  const p = location.hash.replace(/^#\/?/, '').split('/');
-  ['adminGate', 'adminApp', 'restApp', 'clientApp'].forEach(id => $('#' + id).hidden = true);
-  document.body.classList.remove('is-client');
-  clearBrand();
-  document.title = 'MenuPro';
-  if (p[0] === 'c') { $('#clientApp').hidden = false; enterClient(p[1], p[2], p[3]); }
-  else {
-    syncLock();
-    if (p[0] === 'ristoratore') { $('#restApp').hidden = false; renderRest(); }
-    else renderAdmin();
+// =====================================================
+// LOGOUT
+// =====================================================
+$$('.logout-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    currentUser = null;
+    currentRistorante = null;
+    cart = [];
+    lastOrdineId = null;
+    $('#app-admin').classList.add('hidden');
+    $('#app-ristoratore').classList.add('hidden');
+    $('#app-cliente').classList.add('hidden');
+    $('#login-screen').classList.remove('hidden');
+    $('#login-form').reset();
+  });
+});
+
+// =====================================================
+// THEME
+// =====================================================
+$$('.theme-toggle').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const html = document.documentElement;
+    const isDark = html.getAttribute('data-theme') === 'dark';
+    html.setAttribute('data-theme', isDark ? '' : 'dark');
+    $$('.theme-toggle i').forEach(i => { i.className = isDark ? 'fas fa-moon' : 'fas fa-sun'; });
+  });
+});
+
+// =====================================================
+// NAV ADMIN
+// =====================================================
+$$('#app-admin .nav-item').forEach(item => {
+  item.addEventListener('click', async (e) => {
+    e.preventDefault();
+    $$('#app-admin .nav-item').forEach(n => n.classList.remove('active'));
+    item.classList.add('active');
+    const page = item.dataset.page;
+    $$('#app-admin .page').forEach(p => p.classList.add('hidden'));
+    $(`#page-${page}`).classList.remove('hidden');
+    const titles = {
+      dashboard: 'Panoramica', ristoranti: 'Ristoranti', abbonamenti: 'Abbonamenti',
+      'miei-incassi': 'I miei incassi', 'incassi-rist': 'Incassi ristoranti', impostazioni: 'Impostazioni'
+    };
+    $('#admin-page-title').textContent = titles[page] || page;
+    if (page === 'dashboard') await renderAdminDashboard();
+    if (page === 'ristoranti') await renderAdminTable();
+    if (page === 'abbonamenti') await renderAbbonamenti();
+    if (page === 'miei-incassi') await renderMieiIncassi();
+    if (page === 'incassi-rist') await populateIncassiSelect();
+  });
+});
+
+// =====================================================
+// NAV RISTORATORE
+// =====================================================
+$$('#app-ristoratore .nav-item').forEach(item => {
+  item.addEventListener('click', async (e) => {
+    e.preventDefault();
+    $$('#app-ristoratore .nav-item').forEach(n => n.classList.remove('active'));
+    item.classList.add('active');
+    const page = item.dataset.page;
+    $$('#app-ristoratore .page').forEach(p => p.classList.add('hidden'));
+    $(`#page-${page}`).classList.remove('hidden');
+    const titles = {
+      'rist-dashboard': 'Panoramica', 'rist-menu': 'Gestione Menu',
+      'rist-ordini': 'Ordini', 'rist-tavoli': 'Tavoli & QR'
+    };
+    $('#rist-page-title').textContent = titles[page] || page;
+    if (page === 'rist-dashboard') await renderRistDashboard();
+    if (page === 'rist-menu') await renderMenuTable();
+    if (page === 'rist-ordini') await renderOrdiniKanban();
+    if (page === 'rist-tavoli') await renderTavoli();
+  });
+});
+
+// =====================================================
+// CLOSE MODALS
+// =====================================================
+$$('.close-modal').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const id = btn.dataset.modal;
+    if (id) $(`#${id}`).classList.add('hidden');
+  });
+});
+
+// =====================================================
+// TOGGLE PASSWORD
+// =====================================================
+$('#toggle-pass')?.addEventListener('click', () => {
+  const inp = $('#password');
+  const icon = $('#toggle-pass i');
+  if (inp.type === 'password') {
+    inp.type = 'text';
+    icon.className = 'fas fa-eye-slash';
+  } else {
+    inp.type = 'password';
+    icon.className = 'fas fa-eye';
+  }
+});
+
+// =====================================================
+// ADMIN – DASHBOARD
+// =====================================================
+async function renderAdminDashboard() {
+  const ristoranti = await loadRistoranti();
+  const attivi = ristoranti.filter(r => !r.scadenza || new Date(r.scadenza) >= new Date()).length;
+  let ricavi = 0;
+  ristoranti.forEach(r => {
+    const p = PIANI[r.id_piano];
+    if (p && (!r.scadenza || new Date(r.scadenza) >= new Date())) ricavi += p.prezzo;
+  });
+  $('#stat-ristoranti').textContent = ristoranti.length;
+  $('#stat-attivi').textContent = attivi;
+  $('#stat-ricavi').textContent = formatPrice(ricavi);
+
+  const recent = ristoranti.slice(0, 5);
+  const list = $('#recent-list');
+  if (!recent.length) {
+    list.innerHTML = '<p style="color:var(--muted)">Nessun ristorante ancora creato.</p>';
+  } else {
+    list.innerHTML = recent.map(r => `
+      <div class="recent-item">
+        <span><strong>${r.nome}</strong> · ${r.citta || '—'}</span>
+        <span class="badge badge-${r.id_piano}">${r.id_piano}</span>
+      </div>
+    `).join('');
+  }
+  renderAdminCharts(ristoranti);
+}
+
+function renderAdminCharts(ristoranti) {
+  if (typeof Chart === 'undefined') return;
+  const mesi = [], vals = [];
+  const now = new Date();
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    mesi.push(d.toLocaleDateString('it-IT', { month: 'short' }));
+    let v = 0;
+    // semplificato: mostra solo ricavi del mese corrente se non ci sono pagamenti
+    if (i === 0) {
+      ristoranti.forEach(r => {
+        const plan = PIANI[r.id_piano];
+        if (plan && (!r.scadenza || new Date(r.scadenza) >= new Date())) v += plan.prezzo;
+      });
+    }
+    vals.push(v);
+  }
+  const ctx1 = document.getElementById('chart-ricavi-admin');
+  if (ctx1) {
+    if (chartRicaviAdmin) chartRicaviAdmin.destroy();
+    chartRicaviAdmin = new Chart(ctx1, {
+      type: 'bar',
+      data: { labels: mesi, datasets: [{ label: '€', data: vals, backgroundColor: 'rgba(196, 92, 38, 0.7)', borderRadius: 6, borderSkipped: false }] },
+      options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { callback: v => '€' + v } }, x: { grid: { display: false } } } }
+    });
+  }
+  const counts = { base: 0, pro: 0, enterprise: 0 };
+  ristoranti.forEach(r => { if (counts[r.id_piano] !== undefined) counts[r.id_piano]++; });
+  const ctx2 = document.getElementById('chart-piani-admin');
+  if (ctx2) {
+    if (chartPianiAdmin) chartPianiAdmin.destroy();
+    chartPianiAdmin = new Chart(ctx2, {
+      type: 'doughnut',
+      data: { labels: ['Base', 'Pro', 'Enterprise'], datasets: [{ data: [counts.base, counts.pro, counts.enterprise], backgroundColor: ['#c4a574', '#c45c26', '#3d6b8c'], borderWidth: 0 }] },
+      options: { responsive: true, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, padding: 12 } } } }
+    });
   }
 }
-const refresh = route;
-window.addEventListener('hashchange', () => { if (!ready) return; route(); window.scrollTo(0, 0); });
-document.addEventListener('visibilitychange', () => {
-  if (!document.hidden && ready && me && location.hash.startsWith('#/ristoratore')) liveReload();
+
+// =====================================================
+// ADMIN – TABELLA RISTORANTI
+// =====================================================
+async function renderAdminTable(filter = '') {
+  let data = await loadRistoranti();
+  if (filter) {
+    const q = filter.toLowerCase();
+    data = data.filter(r =>
+      r.nome.toLowerCase().includes(q) ||
+      (r.titolare || '').toLowerCase().includes(q) ||
+      (r.citta || '').toLowerCase().includes(q)
+    );
+  }
+  const body = $('#ristoranti-body');
+  if (!data.length) {
+    body.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:40px">Nessun ristorante trovato</td></tr>`;
+    return;
+  }
+  body.innerHTML = data.map(r => `
+    <tr>
+      <td><strong>${r.nome}</strong></td>
+      <td>${r.titolare || '—'}</td>
+      <td>${r.citta || '—'}</td>
+      <td>${(r.sale || []).length}</td>
+      <td><span class="badge badge-${r.id_piano}">${r.id_piano}</span></td>
+      <td>${r.scadenza || '—'}</td>
+      <td class="actions">
+        <button class="btn btn-secondary btn-sm" onclick="editRistorante('${r.id}')" title="Modifica"><i class="fas fa-edit"></i></button>
+        <button class="btn btn-secondary btn-sm" onclick="adminApriMenu('${r.id}')" title="Gestisci menu"><i class="fas fa-book-open"></i></button>
+        <button class="btn btn-danger btn-sm" onclick="deleteRistorante('${r.id}')" title="Elimina"><i class="fas fa-trash"></i></button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+$('#search-ristoranti')?.addEventListener('input', e => renderAdminTable(e.target.value));
+
+// Nuovo / Modifica ristorante
+$('#btn-nuovo')?.addEventListener('click', () => {
+  $('#modal-title').textContent = 'Nuovo ristorante';
+  $('#form-ristorante').reset();
+  $('#edit-id').value = '';
+  $('#password').required = true;
+  $('#password').type = 'password';
+  $('#toggle-pass i').className = 'fas fa-eye';
+  const d = new Date();
+  d.setMonth(d.getMonth() + 1);
+  $('#scadenza').value = d.toISOString().slice(0, 10);
+  $('#sale').value = 'Sala principale';
+  $('#n_tavoli').value = 8;
+  $('#modal-ristorante').classList.remove('hidden');
 });
 
-/* =====================================================
-   COMPONENTI COMUNI
-   ===================================================== */
-function barChart(data, fmt = n => n ? '€' + Math.round(n) : '') {
-  const max = Math.max(1, ...data.map(d => d.v));
-  return `<div class="bars" role="img" aria-label="Grafico a barre">${data.map(d => `<div class="bar">
-    <div class="bcol">${d.v ? `<span class="bv">${fmt(d.v)}</span>` : ''}<div class="bfill" style="flex-basis:${d.v ? Math.max(3, d.v / max * 86) : 0}%"></div></div>
-    <span class="bl">${esc(d.l)}</span></div>`).join('')}</div>`;
+async function createDefaultTavoli(ristoranteId, n) {
+  const count = Math.max(1, parseInt(n) || 8);
+  const rows = [];
+  for (let i = 1; i <= count; i++) {
+    rows.push({
+      id_ristorante: ristoranteId,
+      numero: i,
+      adulti: 4,
+      bambini: 0,
+      sala: 0,
+      occupato: false,
+      forma: 'round'
+    });
+  }
+  if (rows.length) await sb.from('tavoli').insert(rows);
 }
-const emptyBox = (icon, text) => `<div class="empty">${ic(icon, 28)}<p>${text}</p></div>`;
 
-/* =====================================================
-   MENÙ (usato da admin e ristoratore)
-   ===================================================== */
-const curRid = () => location.hash.startsWith('#/ristoratore') ? rSess() : menuRid;
+async function createDefaultCategorie(ristoranteId) {
+  const cats = ['Antipasti', 'Primi', 'Secondi', 'Dolci', 'Bevande'];
+  await sb.from('categorie').insert(cats.map((nome, i) => ({
+    id_ristorante: ristoranteId,
+    nome,
+    posizione: i
+  })));
+}
 
-function menuHtml(rid) {
-  const items = db.menu.filter(m => m.rid === rid);
-  const cats = catsOf(rid);
-  if (!cats.length) return `<div class="panel">${emptyBox('book', 'Nessuna categoria. Creane una con “Crea categoria”, poi aggiungi i piatti.')}</div>`;
-  return `<div class="toolbar"><div class="searchbox">${ic('search', 16)}<input type="search" id="mSearch" placeholder="Cerca un piatto" aria-label="Cerca un piatto"></div></div>`
-    + cats.map((c, n) => {
-      const list = items.filter(i => i.cat === c);
-      return `<div class="panel cat">
-      <div class="cathead"><h4>${esc(c)} <span class="cnt">${list.length}</span></h4><span class="cattools">
-        <button class="btn small ghost icon" data-act="cat-up" data-id="${n}" aria-label="Sposta la categoria su" title="Sposta su">${ic('up', 15)}</button>
-        <button class="btn small ghost icon" data-act="cat-down" data-id="${n}" aria-label="Sposta la categoria giù" title="Sposta giù">${ic('down', 15)}</button>
-        <button class="btn small ghost" data-act="cat-ren" data-id="${n}">Rinomina</button>
-        <button class="btn small ghost" data-act="cat-del" data-id="${n}">Elimina</button></span></div>
-      ${list.length ? list.map(i => { const src = imgSrc(i.img); return `<div class="item ${i.available === false ? 'off' : ''}" data-s="${esc((i.name + ' ' + i.desc).toLowerCase())}">
-        <div class="lead">
-          <div class="mthumb">${src ? `<img class="dimg" src="${esc(src)}" alt="" loading="lazy">` : ic('image', 20)}</div>
-          <div class="info"><b>${esc(i.name)}</b>${i.featured ? `<span class="star" title="Consigliato">${ic('star', 14)}</span>` : ''}${i.available === false ? '<span class="tag out">Esaurito</span>' : ''}<small>${esc(i.desc)}</small>${infoHtml(i)}</div>
-        </div>
-        <div class="right">
-          <input class="pin" type="number" step="0.10" min="0" value="${i.price}" data-price="${i.id}" aria-label="Prezzo ${esc(i.name)}">
-          <button class="btn small ghost" data-act="avail-item" data-id="${i.id}">${i.available === false ? 'Rendi disponibile' : 'Segna esaurito'}</button>
-          <button class="btn small ghost icon" data-act="dup-item" data-id="${i.id}" aria-label="Duplica ${esc(i.name)}" title="Duplica">${ic('copy', 15)}</button>
-          <button class="btn small ghost icon" data-act="edit-item" data-id="${i.id}" aria-label="Modifica ${esc(i.name)}" title="Modifica">${ic('edit', 15)}</button>
-          <button class="btn small ghost icon bad" data-act="del-item" data-id="${i.id}" aria-label="Elimina ${esc(i.name)}" title="Elimina">${ic('trash', 15)}</button>
-        </div></div>`; }).join('') : '<div class="none">Nessun piatto in questa categoria.</div>'}
+async function createDefaultMenu(ristoranteId) {
+  const piatti = [
+    { nome: 'Bruschetta al pomodoro', descrizione: 'Pane tostato, pomodoro fresco, basilico', prezzo: 5.50, categoria: 'Antipasti', allergeni: ['glutine'] },
+    { nome: 'Spaghetti carbonara', descrizione: 'Guanciale, pecorino, uovo', prezzo: 12.00, categoria: 'Primi', allergeni: ['glutine', 'uova', 'latticini'] },
+    { nome: 'Bistecca alla fiorentina', descrizione: 'Manzo, rosmarino, olio EVO', prezzo: 28.00, categoria: 'Secondi', allergeni: [] },
+    { nome: 'Tiramisù', descrizione: 'Mascarpone, caffè, cacao', prezzo: 6.50, categoria: 'Dolci', allergeni: ['latticini', 'uova', 'glutine'] },
+    { nome: 'Acqua naturale 75cl', descrizione: '', prezzo: 2.50, categoria: 'Bevande', allergeni: [] },
+    { nome: 'Vino della casa (calice)', descrizione: '', prezzo: 4.00, categoria: 'Bevande', allergeni: [] }
+  ];
+  await sb.from('piatti').insert(piatti.map(p => ({
+    ...p,
+    id_ristorante: ristoranteId,
+    disponibile: true
+  })));
+}
+
+$('#form-ristorante')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!sb) {
+    toast('Database non collegato: controlla config.js (ANON_KEY)');
+    return;
+  }
+
+  const id = $('#edit-id').value;
+  const saleStr = $('#sale').value.trim() || 'Sala principale';
+  const sale = saleStr.split(',').map(s => s.trim()).filter(Boolean);
+  const nTavoli = parseInt($('#n_tavoli').value) || 8;
+
+  const email = $('#email').value.trim().toLowerCase();
+  const password = $('#password').value;
+  const nomeRist = $('#nome').value.trim();
+  const titolare = $('#titolare').value.trim();
+
+  if (!email) {
+    toast('Email ristoratore obbligatoria');
+    return;
+  }
+
+  const data = {
+    nome: nomeRist,
+    titolare,
+    citta: $('#citta').value.trim(),
+    email,
+    password: password || undefined,
+    id_piano: $('#id_piano').value,
+    scadenza: $('#scadenza').value || null,
+    sale
+  };
+
+  if (id) {
+    // --- MODIFICA ristorante ---
+    if (!data.password) delete data.password;
+    const { error } = await sb.from('ristoranti').update(data).eq('id', id);
+    if (error) {
+      toast('Errore aggiornamento ristorante: ' + error.message);
+      console.error(error);
+      return;
+    }
+
+    // aggiorna/crea anche l'UTENTE ristoratore
+    const utenteUpdate = { nome: titolare || nomeRist, ruolo: 'ristoratore' };
+    if (password) utenteUpdate.password_hash = password;
+
+    const { data: existingUser } = await sb.from('utenti').select('id').eq('email', email).maybeSingle();
+    if (existingUser) {
+      const { error: errU } = await sb.from('utenti').update(utenteUpdate).eq('id', existingUser.id);
+      if (errU) console.error('Errore update utente:', errU);
+    } else if (password) {
+      const { error: errU } = await sb.from('utenti').insert({
+        email,
+        password_hash: password,
+        ruolo: 'ristoratore',
+        nome: titolare || nomeRist
+      });
+      if (errU) console.error('Errore create utente:', errU);
+    }
+    toast('Ristorante e utente aggiornati');
+  } else {
+    // --- NUOVO ristorante + UTENTE ---
+    if (!password) {
+      toast('Password obbligatoria per il ristoratore');
+      return;
+    }
+
+    const { data: inserted, error } = await sb.from('ristoranti').insert({
+      ...data,
+      password
+    }).select().single();
+
+    if (error) {
+      toast('Errore creazione ristorante: ' + error.message);
+      console.error(error);
+      return;
+    }
+
+    // crea l'UTENTE ristoratore (email + password + nome)
+    const { error: errUser } = await sb.from('utenti').insert({
+      email,
+      password_hash: password,
+      ruolo: 'ristoratore',
+      nome: titolare || nomeRist
+    });
+
+    if (errUser) {
+      console.error('Errore creazione utente:', errUser);
+      toast('Ristorante creato, ma utente non salvato: ' + errUser.message);
+    } else {
+      toast('Ristorante e utente ristoratore creati');
+    }
+
+    await createDefaultTavoli(inserted.id, nTavoli);
+    await createDefaultCategorie(inserted.id);
+    await createDefaultMenu(inserted.id);
+  }
+
+  $('#modal-ristorante').classList.add('hidden');
+  await renderAdminTable($('#search-ristoranti')?.value || '');
+  await renderAdminDashboard();
+  await renderAbbonamenti();
+});
+
+window.editRistorante = async function(id) {
+  const { data: r } = await sb.from('ristoranti').select('*').eq('id', id).single();
+  if (!r) return;
+  $('#modal-title').textContent = 'Modifica ristorante';
+  $('#edit-id').value = r.id;
+  $('#nome').value = r.nome;
+  $('#titolare').value = r.titolare || '';
+  $('#citta').value = r.citta || '';
+  $('#email').value = r.email;
+  $('#password').value = '';
+  $('#password').type = 'password';
+  $('#password').required = false;
+  $('#toggle-pass i').className = 'fas fa-eye';
+  $('#id_piano').value = r.id_piano;
+  $('#scadenza').value = r.scadenza || '';
+  $('#sale').value = (r.sale || []).join(', ');
+  const { count } = await sb.from('tavoli').select('*', { count: 'exact', head: true }).eq('id_ristorante', id);
+  $('#n_tavoli').value = count || 8;
+  $('#modal-ristorante').classList.remove('hidden');
+};
+
+window.deleteRistorante = async function(id) {
+  if (!confirm('Eliminare questo ristorante?')) return;
+  const { error } = await sb.from('ristoranti').delete().eq('id', id);
+  if (error) { toast('Errore eliminazione'); return; }
+  await renderAdminTable($('#search-ristoranti')?.value || '');
+  await renderAdminDashboard();
+  await renderAbbonamenti();
+  toast('Ristorante eliminato');
+};
+
+window.adminApriMenu = async function(id) {
+  const r = await loadRistoranteFull(id);
+  if (!r) return;
+  currentRistorante = r;
+  currentUser = { role: 'ristoratore', email: r.email, ristoranteId: r.id, fromAdmin: true };
+  $('#app-admin').classList.add('hidden');
+  $('#app-ristoratore').classList.remove('hidden');
+  $('#rist-nome-sidebar').textContent = r.nome + ' (admin)';
+  $('#rist-user-email').textContent = 'Gestione menu';
+  $$('#app-ristoratore .nav-item').forEach(n => n.classList.remove('active'));
+  $$('#app-ristoratore .page').forEach(p => p.classList.add('hidden'));
+  const menuNav = $$('#app-ristoratore .nav-item')[1];
+  if (menuNav) menuNav.classList.add('active');
+  $('#page-rist-menu').classList.remove('hidden');
+  $('#rist-page-title').textContent = 'Gestione Menu';
+  await renderMenuTable();
+};
+
+// =====================================================
+// ABBONAMENTI
+// =====================================================
+async function renderAbbonamenti() {
+  const ristoranti = await loadRistoranti();
+  const body = $('#abbonamenti-body');
+  if (!ristoranti.length) {
+    body.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:30px">Nessun abbonamento</td></tr>`;
+    return;
+  }
+  body.innerHTML = ristoranti.map(r => {
+    const scad = r.scadenza ? new Date(r.scadenza) : null;
+    const oggi = new Date();
+    oggi.setHours(0,0,0,0);
+    let statoLabel = 'Senza data';
+    let statoClass = 'badge-base';
+    let scadClass = '';
+    let scadText = '—';
+    if (scad) {
+      scadText = scad.toLocaleDateString('it-IT', { day: '2-digit', month: 'long', year: 'numeric' });
+      if (scad < oggi) {
+        statoLabel = 'Scaduto';
+        scadClass = 'scadenza-late';
+      } else {
+        const diff = Math.ceil((scad - oggi) / (1000*60*60*24));
+        if (diff <= 7) {
+          statoLabel = 'In scadenza';
+          scadClass = 'scadenza-warn';
+        } else {
+          statoLabel = 'Attivo';
+          statoClass = 'badge-pro';
+          scadClass = 'scadenza-ok';
+        }
+      }
+    }
+    return `
+      <tr>
+        <td><strong>${r.nome}</strong></td>
+        <td><span class="badge badge-${r.id_piano}">${r.id_piano}</span></td>
+        <td class="${scadClass}">${scadText}</td>
+        <td><span class="badge ${statoClass}">${statoLabel}</span></td>
+        <td>
+          <button class="btn btn-primary btn-sm" onclick="estendiAbbonamento('${r.id}')">
+            <i class="fas fa-plus"></i> +1 mese
+          </button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+window.estendiAbbonamento = async function(id) {
+  const { data: r } = await sb.from('ristoranti').select('*').eq('id', id).single();
+  if (!r) return;
+  let d = r.scadenza ? new Date(r.scadenza) : new Date();
+  if (d < new Date()) d = new Date();
+  d.setMonth(d.getMonth() + 1);
+  const nuovaScad = d.toISOString().slice(0, 10);
+  await sb.from('ristoranti').update({ scadenza: nuovaScad }).eq('id', id);
+  const prezzo = PIANI[r.id_piano]?.prezzo || 0;
+  await sb.from('pagamenti_abbonamento').insert({
+    id_ristorante: id,
+    importo: prezzo,
+    piano: r.id_piano,
+    tipo: 'rinnovo'
+  });
+  await renderAbbonamenti();
+  await renderAdminDashboard();
+  await renderMieiIncassi();
+  toast('Rinnovato fino al ' + new Date(nuovaScad).toLocaleDateString('it-IT', { day: '2-digit', month: 'long', year: 'numeric' }) + ' (+' + formatPrice(prezzo) + ')');
+};
+
+// =====================================================
+// MIEI INCASSI
+// =====================================================
+async function renderMieiIncassi() {
+  const ristoranti = await loadRistoranti();
+  let totale = 0, mese = 0, inAttesa = 0;
+  const now = new Date();
+  const pagamenti = [];
+
+  for (const r of ristoranti) {
+    const { data: pags } = await sb.from('pagamenti_abbonamento').select('*').eq('id_ristorante', r.id);
+    (pags || []).forEach(p => {
+      totale += Number(p.importo);
+      const pd = new Date(p.data);
+      if (pd.getMonth() === now.getMonth() && pd.getFullYear() === now.getFullYear()) mese += Number(p.importo);
+      pagamenti.push({ ...p, ristorante: r.nome });
+    });
+    if (r.scadenza) {
+      const scad = new Date(r.scadenza);
+      const diff = (scad - now) / (1000 * 60 * 60 * 24);
+      if (diff >= 0 && diff <= 7) inAttesa += PIANI[r.id_piano]?.prezzo || 0;
+    }
+  }
+
+  $('#incassi-totale').textContent = formatPrice(totale);
+  $('#incassi-mese').textContent = formatPrice(mese);
+  $('#incassi-in-attesa').textContent = formatPrice(inAttesa);
+
+  const scadenze = ristoranti
+    .filter(r => r.scadenza)
+    .map(r => ({ nome: r.nome, scadenza: r.scadenza, piano: r.id_piano }))
+    .sort((a, b) => new Date(a.scadenza) - new Date(b.scadenza));
+
+  pagamenti.sort((a, b) => new Date(b.data) - new Date(a.data));
+  const list = $('#pagamenti-list');
+  let html = '';
+  if (scadenze.length) {
+    html += '<h4 style="margin:0 0 10px;font-size:14px;color:var(--muted)">Prossime scadenze abbonamento</h4>';
+    html += scadenze.map(s => {
+      const d = new Date(s.scadenza);
+      const oggi = new Date(); oggi.setHours(0,0,0,0);
+      const late = d < oggi;
+      const warn = !late && (d - oggi) / (1000*60*60*24) <= 7;
+      const cls = late ? 'scadenza-late' : (warn ? 'scadenza-warn' : 'scadenza-ok');
+      const label = d.toLocaleDateString('it-IT', { day: '2-digit', month: 'long', year: 'numeric' });
+      return `<div class="recent-item">
+        <span><strong>${s.nome}</strong> · ${s.piano}</span>
+        <span class="${cls}">scade il ${label}</span>
       </div>`;
     }).join('');
+    html += '<h4 style="margin:18px 0 10px;font-size:14px;color:var(--muted)">Pagamenti ricevuti</h4>';
+  }
+  if (!pagamenti.length) {
+    html += '<p style="color:var(--muted)">Nessun pagamento ricevuto ancora.</p>';
+  } else {
+    html += pagamenti.slice(0, 20).map(p => `
+      <div class="recent-item">
+        <span><strong>${p.ristorante}</strong> · ${p.tipo} (${p.piano})</span>
+        <span>${formatPrice(p.importo)} · ${formatTime(p.data)}</span>
+      </div>
+    `).join('');
+  }
+  list.innerHTML = html;
 }
 
-function itemForm(rid, i = {}) {
-  const cats = catsOf(rid), none = !cats.length;
-  const prev = imgSrc(i.img);
-  return `
-  <label for="catSel">Categoria</label>
-  <select name="cat" id="catSel" required>
-    ${cats.map(c => `<option value="${esc(c)}" ${c === i.cat ? 'selected' : ''}>${esc(c)}</option>`).join('')}
-    <option value="__new__" ${none ? 'selected' : ''}>+ Crea nuova categoria…</option>
-  </select>
-  <div id="newCatWrap" ${none ? '' : 'hidden'}><label for="newCat">Nome della nuova categoria</label><input name="newcat" id="newCat" placeholder="Es. Menù bambini"></div>
-  <label for="fName">Nome piatto</label><input id="fName" name="name" required maxlength="80" value="${esc(i.name)}">
-  <label for="fDesc">Descrizione</label><input id="fDesc" name="desc" maxlength="160" value="${esc(i.desc)}">
-  <label for="fPrice">Prezzo (€)</label><input id="fPrice" name="price" type="number" step="0.10" min="0" required value="${i.price ?? ''}">
-  <label>Foto del piatto</label>
-  <div class="imgfield">
-    <div class="imgprev" id="imgPrev">${prev ? `<img class="dimg" src="${esc(prev)}" alt="">` : ic('image', 30)}</div>
-    <div class="imgbtns">
-      <button type="button" class="btn small ghost" data-act="img-pick">${ic('image', 15)} Scegli o scatta una foto</button>
-      <button type="button" class="btn small ghost bad" data-act="img-clear">Rimuovi foto</button>
-    </div>
-  </div>
-  <input type="file" id="imgFile" accept="image/*" hidden>
-  <input type="hidden" name="img" id="imgVal" value="${esc(i.img || '')}">
-  <label for="imgUrl">Oppure incolla il link di una foto</label>
-  <input id="imgUrl" type="url" placeholder="https://…" value="${i.img && !i.img.startsWith('data:') ? esc(i.img) : ''}">
-  <label>Allergeni presenti</label>
-  <div class="checks">${ALLERGENS.map(a => `<label><input type="checkbox" name="allergen" value="${a}" ${i.allergens?.includes(a) ? 'checked' : ''}> ${a}</label>`).join('')}</div>
-  <label>Caratteristiche</label>
-  <div class="checks">${TAGS.map(t => `<label><input type="checkbox" name="tag" value="${t}" ${i.tags?.includes(t) ? 'checked' : ''}> ${t}</label>`).join('')}
-    <label><input type="checkbox" name="featured" ${i.featured ? 'checked' : ''}> Consigliato dallo chef</label></div>`;
+// =====================================================
+// INCASSI RISTORANTI
+// =====================================================
+async function populateIncassiSelect() {
+  const ristoranti = await loadRistoranti();
+  const sel = $('#select-rist-incassi');
+  sel.innerHTML = '<option value="">— Seleziona —</option>' +
+    ristoranti.map(r => `<option value="${r.id}">${r.nome}</option>`).join('');
 }
-/* converte i dati del form nelle colonne del database; restituisce null se la nuova categoria è vuota */
-async function itemData(rid, d) {
-  let cat = d.cat;
-  if (cat === '__new__') {
-    cat = (d.newcat || '').trim();
-    if (!cat) return null;
-    const ex = catsOf(rid).find(c => c.toLowerCase() === cat.toLowerCase());
-    if (ex) cat = ex; else await createCat(rid, cat);
+
+$('#select-rist-incassi')?.addEventListener('change', async () => {
+  const id = $('#select-rist-incassi').value;
+  const cont = $('#incassi-rist-content');
+  if (!id) {
+    cont.innerHTML = '<p style="color:var(--muted)">Seleziona un ristorante per vedere i dettagli.</p>';
+    return;
   }
-  const r = db.restaurants.find(x => x.id === rid);
-  let img = validImg(d.img);
-  if (img.startsWith('data:')) img = await uploadImg(rid, img);
-  return {
-    id_categoria: r.catIds[cat], nome: d.name.trim(), descrizione: (d.desc || '').trim(),
-    prezzo: round2(Math.max(0, +d.price || 0)), immagine: img || null,
-    allergeni: [].concat(d.allergen || []), tag: [].concat(d.tag || []), consigliato: !!d.featured
+  const r = await loadRistoranteFull(id);
+  if (!r) return;
+
+  const ordini = r.ordini || [];
+  const totale = ordini.reduce((s, o) => s + (Number(o.totale) || 0), 0);
+  const oggi = ordini.filter(o => new Date(o.createdAt).toDateString() === new Date().toDateString())
+    .reduce((s, o) => s + Number(o.totale), 0);
+
+  const counts = {};
+  ordini.forEach(o => {
+    (o.items || []).forEach(i => {
+      counts[i.nome] = (counts[i.nome] || 0) + i.qty;
+    });
+  });
+  let topPiatto = '—', topQty = 0;
+  Object.entries(counts).forEach(([nome, qty]) => {
+    if (qty > topQty) { topPiatto = nome; topQty = qty; }
+  });
+
+  cont.innerHTML = `
+    <div class="cards">
+      <div class="card">
+        <div class="card-icon green"><i class="fas fa-euro-sign"></i></div>
+        <div><h3>${formatPrice(totale)}</h3><p>Incasso totale</p></div>
+      </div>
+      <div class="card">
+        <div class="card-icon blue"><i class="fas fa-calendar-day"></i></div>
+        <div><h3>${formatPrice(oggi)}</h3><p>Incasso oggi</p></div>
+      </div>
+      <div class="card">
+        <div class="card-icon orange"><i class="fas fa-utensils"></i></div>
+        <div><h3>${topPiatto}</h3><p>Piatto più venduto (${topQty}x)</p></div>
+      </div>
+      <div class="card">
+        <div class="card-icon purple"><i class="fas fa-receipt"></i></div>
+        <div><h3>${ordini.length}</h3><p>Ordini totali</p></div>
+      </div>
+    </div>
+    <div class="recent-box">
+      <h3>Ultimi ordini di ${r.nome}</h3>
+      <div class="recent-list">
+        ${ordini.length === 0 ? '<p style="color:var(--muted)">Nessun ordine.</p>' :
+          ordini.slice(0, 10).map(o => `
+            <div class="recent-item">
+              <span>Tavolo ${o.tavolo} · ${formatPrice(o.totale)}</span>
+              <span class="badge-stato ${o.stato}">${labelStato(o.stato)}</span>
+            </div>
+          `).join('')}
+      </div>
+    </div>
+  `;
+});
+
+// RESET
+$('#btn-reset')?.addEventListener('click', async () => {
+  if (!confirm('Cancellare TUTTI i dati? Questa operazione non si può annullare.')) return;
+  await sb.from('pagamenti_abbonamento').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+  await sb.from('ordini').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+  await sb.from('piatti').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+  await sb.from('categorie').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+  await sb.from('tavoli').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+  await sb.from('ristoranti').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+  await renderAdminTable();
+  await renderAdminDashboard();
+  await renderAbbonamenti();
+  await renderMieiIncassi();
+  toast('Dati cancellati');
+});
+
+// DEMO UTENTE
+$('#btn-demo-utente')?.addEventListener('click', async () => {
+  const ristoranti = await loadRistoranti();
+  if (!ristoranti.length) { toast('Crea prima un ristorante'); return; }
+  const sel = $('#demo-ristorante');
+  sel.innerHTML = ristoranti.map(r => `<option value="${r.id}">${r.nome}</option>`).join('');
+  $('#modal-demo-utente').classList.remove('hidden');
+});
+
+$('#btn-avvia-demo')?.addEventListener('click', async () => {
+  const ristId = $('#demo-ristorante').value;
+  const tavolo = parseInt($('#demo-tavolo').value) || 1;
+  const r = await loadRistoranteFull(ristId);
+  if (!r) return;
+  currentUser = { role: 'cliente', ristoranteId: ristId, tavolo };
+  currentRistorante = r;
+  cart = [];
+  lastOrdineId = null;
+  $('#modal-demo-utente').classList.add('hidden');
+  $('#app-admin').classList.add('hidden');
+  $('#app-cliente').classList.remove('hidden');
+  $('#cliente-rist-nome').textContent = r.nome;
+  $('#cliente-tavolo-num').textContent = tavolo;
+  showClienteView('menu');
+  renderClienteMenu();
+});
+
+// =====================================================
+// RISTORATORE
+// =====================================================
+function labelStato(s) {
+  return { nuovo: 'Nuovo', in_preparazione: 'In preparazione', pronto: 'Pronto', consegnato: 'Consegnato', chiuso: 'Chiuso' }[s] || s;
+}
+function labelPagamentoStato(s) {
+  return { pagato: 'Pagato', in_attesa: 'In attesa', non_pagato: 'Non pagato' }[s] || s || 'In attesa';
+}
+function defaultPagStato(metodo) {
+  return metodo === 'carta' ? 'pagato' : 'in_attesa';
+}
+
+function inPeriod(iso, period) {
+  const d = new Date(iso);
+  const now = new Date();
+  if (period === 'oggi') return d.toDateString() === now.toDateString();
+  if (period === 'settimana') {
+    const weekAgo = new Date(now);
+    weekAgo.setDate(weekAgo.getDate() - 7);
+    return d >= weekAgo;
+  }
+  if (period === 'mese') {
+    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+  }
+  return true;
+}
+
+$$('.period-btn').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    $$('.period-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentPeriod = btn.dataset.period;
+    await renderRistDashboard();
+  });
+});
+
+async function renderRistDashboard() {
+  if (!currentRistorante) return;
+  currentRistorante = await loadRistoranteFull(currentRistorante.id);
+  const menu = currentRistorante.menu || [];
+  const ordini = currentRistorante.ordini || [];
+  const tavoli = currentRistorante.tavoli || [];
+
+  const attivi = ordini.filter(o => o.stato !== 'consegnato' && o.stato !== 'chiuso').length;
+  const occupati = tavoli.filter(t => t.occupato).length ||
+    new Set(ordini.filter(o => o.stato !== 'consegnato' && o.stato !== 'chiuso').map(o => o.tavolo)).size;
+  const incasso = ordini.filter(o => inPeriod(o.createdAt, currentPeriod))
+    .reduce((s, o) => s + Number(o.totale), 0);
+
+  $('#rist-stat-piatti').textContent = menu.length;
+  $('#rist-stat-tavoli-occ').textContent = occupati;
+  $('#rist-stat-ordini-attivi').textContent = attivi;
+  $('#rist-stat-incasso').textContent = formatPrice(incasso);
+
+  const badge = $('#badge-ordini');
+  const nuovi = ordini.filter(o => o.stato === 'nuovo').length;
+  if (nuovi > 0) { badge.textContent = nuovi; badge.classList.remove('hidden'); }
+  else badge.classList.add('hidden');
+
+  const recent = ordini.slice(0, 5);
+  const list = $('#rist-recent-ordini');
+  if (!recent.length) {
+    list.innerHTML = '<p style="color:var(--muted)">Nessun ordine ancora.</p>';
+  } else {
+    list.innerHTML = recent.map(o => {
+      const ps = o.stato_pagamento || defaultPagStato(o.pagamento);
+      return `<div class="recent-item">
+        <span><strong>Tavolo ${o.tavolo}</strong> · ${formatPrice(o.totale)} · ${formatTime(o.createdAt)}</span>
+        <span>
+          <span class="badge-stato ${o.stato}">${labelStato(o.stato)}</span>
+          <span class="badge-pag ${ps}">${labelPagamentoStato(ps)}</span>
+        </span>
+      </div>`;
+    }).join('');
+  }
+  renderRistCharts();
+}
+
+function renderRistCharts() {
+  if (typeof Chart === 'undefined' || !currentRistorante) return;
+  const ordini = (currentRistorante.ordini || []).filter(o => inPeriod(o.createdAt, currentPeriod));
+  // chart semplificato
+  const ctx1 = document.getElementById('chart-incassi-rist');
+  if (ctx1) {
+    if (chartIncassiRist) chartIncassiRist.destroy();
+    const labels = ['Incasso'];
+    const data = [ordini.reduce((s, o) => s + Number(o.totale), 0)];
+    chartIncassiRist = new Chart(ctx1, {
+      type: 'bar',
+      data: { labels, datasets: [{ label: '€', data, backgroundColor: 'rgba(196, 92, 38, 0.7)', borderRadius: 6 }] },
+      options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+    });
+  }
+  const stati = { nuovo: 0, in_preparazione: 0, pronto: 0, consegnato: 0 };
+  ordini.forEach(o => { if (stati[o.stato] !== undefined) stati[o.stato]++; });
+  const ctx2 = document.getElementById('chart-stati-rist');
+  if (ctx2) {
+    if (chartStatiRist) chartStatiRist.destroy();
+    chartStatiRist = new Chart(ctx2, {
+      type: 'doughnut',
+      data: {
+        labels: ['Nuovo', 'In prep.', 'Pronto', 'Consegnato'],
+        datasets: [{ data: [stati.nuovo, stati.in_preparazione, stati.pronto, stati.consegnato], backgroundColor: ['#d4890f', '#3d6b8c', '#3d7a5a', '#7a6f62'], borderWidth: 0 }]
+      },
+      options: { responsive: true, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12 } } } }
+    });
+  }
+}
+
+// =====================================================
+// MENU
+// =====================================================
+async function renderMenuTable(filter = '') {
+  if (!currentRistorante) return;
+  currentRistorante = await loadRistoranteFull(currentRistorante.id);
+  let menu = currentRistorante.menu || [];
+
+  // chips categorie
+  const chips = $('#categorie-chips');
+  if (chips) {
+    const cats = ['tutti', ...(currentRistorante.categorie || [])];
+    chips.innerHTML = cats.map(c =>
+      `<button class="cat-chip ${c === menuFilterCat ? 'active' : ''}" data-cat="${c}">${c === 'tutti' ? 'Tutti' : c}</button>`
+    ).join('');
+    chips.querySelectorAll('.cat-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        menuFilterCat = chip.dataset.cat;
+        renderMenuTable(filter);
+      });
+    });
+  }
+
+  if (menuFilterCat !== 'tutti') menu = menu.filter(p => p.categoria === menuFilterCat);
+  if (filter) {
+    const q = filter.toLowerCase();
+    menu = menu.filter(p => p.nome.toLowerCase().includes(q));
+  }
+
+  const sel = $('#piatto-categoria');
+  if (sel) {
+    sel.innerHTML = (currentRistorante.categorie || []).map(c =>
+      `<option value="${c}">${c}</option>`
+    ).join('');
+  }
+
+  const body = $('#menu-body');
+  if (!menu.length) {
+    body.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:40px">Nessun piatto. Aggiungine uno!</td></tr>`;
+    return;
+  }
+  body.innerHTML = menu.map(p => `
+    <tr>
+      <td>
+        <div style="display:flex;align-items:center;gap:10px">
+          ${p.immagine ? `<img src="${p.immagine}" class="piatto-img" alt="" onerror="this.style.display='none'"/>` : ''}
+          <div>
+            <strong>${p.nome}</strong>
+            ${p.descrizione ? `<br><small style="color:var(--muted)">${p.descrizione}</small>` : ''}
+          </div>
+        </div>
+      </td>
+      <td>${p.categoria || '—'}</td>
+      <td>${formatPrice(p.prezzo)}</td>
+      <td style="font-size:12px">${(p.allergeni || []).join(', ') || '—'}</td>
+      <td><span class="badge ${p.disponibile ? 'badge-pro' : 'badge-base'}">${p.disponibile ? 'Sì' : 'No'}</span></td>
+      <td class="actions">
+        <button class="btn btn-secondary btn-sm" onclick="editPiatto('${p.id}')"><i class="fas fa-edit"></i></button>
+        <button class="btn btn-danger btn-sm" onclick="deletePiatto('${p.id}')"><i class="fas fa-trash"></i></button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+$('#search-menu')?.addEventListener('input', e => renderMenuTable(e.target.value));
+
+function resetPiattoImage() {
+  const prev = $('#piatto-preview');
+  const wrap = $('#piatto-preview-wrap');
+  const file = $('#piatto-file');
+  if (prev) prev.src = '';
+  if (wrap) wrap.classList.add('hidden');
+  if (file) file.value = '';
+  if ($('#piatto-immagine')) $('#piatto-immagine').value = '';
+}
+
+function showPiattoPreview(src) {
+  const prev = $('#piatto-preview');
+  const wrap = $('#piatto-preview-wrap');
+  if (!prev || !wrap) return;
+  if (src) {
+    prev.src = src;
+    wrap.classList.remove('hidden');
+  } else {
+    resetPiattoImage();
+  }
+}
+
+$('#piatto-file')?.addEventListener('change', (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  if (file.size > 1.5 * 1024 * 1024) {
+    toast('Immagine troppo grande (max 1.5 MB)');
+    e.target.value = '';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    showPiattoPreview(reader.result);
+    if ($('#piatto-immagine')) $('#piatto-immagine').value = '';
   };
-}
-const setPrev = src => { const p = $('#imgPrev'); if (p) p.innerHTML = src ? `<img class="dimg" src="${esc(src)}" alt="">` : ic('image', 30); };
+  reader.readAsDataURL(file);
+});
 
-/* =====================================================
-   1. ADMIN
-   ===================================================== */
-let view = 'dashboard';
-let menuRid = '';
-const adminAuthed = () => !!me && me.ruolo === 'admin';
+$('#piatto-immagine')?.addEventListener('input', (e) => {
+  const url = e.target.value.trim();
+  if (url) showPiattoPreview(url);
+  else if (!$('#piatto-file')?.files?.length) resetPiattoImage();
+});
 
-$('#adminForm').addEventListener('submit', async e => {
+$('#btn-rimuovi-img')?.addEventListener('click', () => resetPiattoImage());
+
+$('#btn-nuovo-piatto')?.addEventListener('click', () => {
+  $('#modal-piatto-title').textContent = 'Nuovo piatto';
+  $('#form-piatto').reset();
+  $('#piatto-edit-id').value = '';
+  $('#piatto-disponibile').checked = true;
+  resetPiattoImage();
+  const sel = $('#piatto-categoria');
+  sel.innerHTML = (currentRistorante.categorie || []).map(c => `<option value="${c}">${c}</option>`).join('');
+  $$('#allergeni-grid input').forEach(c => c.checked = false);
+  $('#modal-piatto').classList.remove('hidden');
+});
+
+$('#btn-nuova-categoria')?.addEventListener('click', () => {
+  $('#form-categoria').reset();
+  $('#modal-categoria').classList.remove('hidden');
+});
+
+$('#form-categoria')?.addEventListener('submit', async (e) => {
   e.preventDefault();
-  const err = $('#adminErr'), btn = $('#adminBtn');
-  err.textContent = ''; btn.disabled = true;
-  const f = new FormData(e.target);
-  try { await doLogin(String(f.get('email')).trim(), String(f.get('password')), 'admin'); e.target.reset(); }
-  catch (x) { err.textContent = x.message; }
-  btn.disabled = false;
+  const nome = $('#cat-nome').value.trim();
+  if (!nome || !currentRistorante) return;
+  if (!(currentRistorante.categorie || []).includes(nome)) {
+    await sb.from('categorie').insert({
+      id_ristorante: currentRistorante.id,
+      nome,
+      posizione: (currentRistorante.categorie || []).length
+    });
+    toast('Categoria creata');
+  }
+  $('#modal-categoria').classList.add('hidden');
+  await renderMenuTable();
 });
 
-function viewDashboard() {
-  const active = db.restaurants.filter(restActive);
-  const mrr = active.reduce((s, r) => s + planOf(r.plan).price, 0);
-  const sameMonth = (t, d) => { const x = new Date(t); return x.getMonth() === d.getMonth() && x.getFullYear() === d.getFullYear(); };
-  const monthPay = db.payments.filter(p => sameMonth(p.at, new Date())).reduce((s, p) => s + p.amount, 0);
-  const expired = db.restaurants.filter(r => statusOf(r) === 'scaduto');
-  const soon = active.filter(r => pd(r.expires) - Date.now() < 7 * 864e5);
-  const list = [...expired, ...soon];
-  const chart = [...Array(6)].map((_, k) => {
-    const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 5 + k);
-    return { l: d.toLocaleDateString('it-IT', { month: 'short' }), v: db.payments.filter(p => sameMonth(p.at, d)).reduce((s, p) => s + p.amount, 0) };
-  });
-  return `
-  <div class="stats">
-    <div class="stat main-stat"><b>${eur(mrr)}</b><span>Incasso mensile ricorrente</span></div>
-    <div class="stat"><b>${eur(monthPay)}</b><span>Pagamenti di questo mese</span></div>
-    <div class="stat"><b>${active.length}<small>/${db.restaurants.length}</small></b><span>Ristoranti attivi</span></div>
-    <div class="stat"><b>${expired.length}</b><span>Abbonamenti scaduti</span></div>
-    <div class="stat"><b>${db.orderCount}</b><span>Ordini ricevuti</span></div>
-  </div>
-  <div class="grid2">
-    <div class="panel"><h3>Pagamenti degli ultimi 6 mesi</h3>${barChart(chart)}</div>
-    <div class="panel"><h3>Da rinnovare</h3>
-      ${list.length ? `<table><tr><th>Ristorante</th><th>Scadenza</th><th>Stato</th><th></th></tr>
-      ${list.map(r => `<tr><td>${esc(r.name)}<br><small class="muted">${planOf(r.plan).name}</small></td><td>${fdate(r.expires)}</td><td>${badge(r)}</td>
-      <td class="act"><button class="btn small" data-act="renew" data-id="${r.id}">Rinnova +1 mese</button></td></tr>`).join('')}</table>`
-        : emptyBox('check', 'Nessun abbonamento in scadenza nei prossimi 7 giorni.')}
-    </div>
-  </div>`;
-}
-
-function viewRistoranti() {
-  if (!db.restaurants.length) return `<div class="panel">${emptyBox('store', 'Nessun ristorante. Aggiungi il primo cliente con “Nuovo ristorante”.')}</div>`;
-  return `<div class="toolbar"><div class="searchbox">${ic('search', 16)}<input type="search" id="rSearch" placeholder="Cerca per nome, città o email" aria-label="Cerca ristorante"></div></div>
-  <div class="panel"><table>
-  <tr><th>Ristorante</th><th>Titolare</th><th>Città</th><th>Piano</th><th>Scadenza</th><th>Stato</th><th></th></tr>
-  ${db.restaurants.map(r => `<tr data-s="${esc((r.name + ' ' + r.owner + ' ' + r.city + ' ' + r.email).toLowerCase())}">
-    <td><b>${esc(r.name)}</b><br><small class="muted">${esc(r.email || 'nessun account collegato')} · ${r.tables} tavoli</small></td>
-    <td>${esc(r.owner)}</td><td>${esc(r.city)}</td><td>${planOf(r.plan).name}</td>
-    <td>${fdate(r.expires)}</td><td>${badge(r)}</td>
-    <td class="act">
-      <button class="btn small ghost" data-act="creds" data-id="${r.id}">Account</button>
-      <button class="btn small ghost" data-act="open-menu" data-id="${r.id}">Menù</button>
-      <button class="btn small ghost" data-act="edit-rest" data-id="${r.id}">Modifica</button>
-      <button class="btn small ghost icon bad" data-act="del-rest" data-id="${r.id}" aria-label="Elimina ${esc(r.name)}" title="Elimina">${ic('trash', 15)}</button>
-    </td></tr>`).join('')}
-  </table></div>`;
-}
-
-function viewAbbonamenti() {
-  const pays = [...db.payments].sort((a, b) => b.at - a.at).slice(0, 10);
-  return `
-  <div class="plans">${db.plans.map(p => `
-    <div class="plan ${p.id === 'pro' ? 'pro' : ''}">
-      <h3>${esc(p.name)}</h3>
-      <div class="price">${eur(p.price)}<small> al mese</small></div>
-      <p>${esc(p.desc)}</p>
-      <p>${db.restaurants.filter(r => r.plan === p.id).length} ristoranti</p>
-      <button class="btn small ghost" data-act="edit-plan" data-id="${p.id}">Modifica piano</button>
-    </div>`).join('')}</div>
-  <div class="panel"><h3>Abbonamenti dei ristoranti</h3>
-  ${db.restaurants.length ? `<table><tr><th>Ristorante</th><th>Piano</th><th>Prezzo</th><th>Scadenza</th><th>Stato</th><th></th></tr>
-  ${db.restaurants.map(r => `<tr><td>${esc(r.name)}</td><td>${planOf(r.plan).name}</td><td>${eur(planOf(r.plan).price)}</td>
-    <td>${fdate(r.expires)}</td><td>${badge(r)}</td>
-    <td class="act">
-      <button class="btn small" data-act="renew" data-id="${r.id}">Registra pagamento +1 mese</button>
-      <button class="btn small ghost" data-act="toggle" data-id="${r.id}">${r.suspended ? 'Riattiva' : 'Sospendi'}</button>
-    </td></tr>`).join('')}</table>` : emptyBox('store', 'Nessun ristorante.')}
-  </div>
-  <div class="panel"><h3>Ultimi pagamenti</h3>
-  ${pays.length ? `<table><tr><th>Data</th><th>Ristorante</th><th>Importo</th></tr>
-  ${pays.map(p => `<tr><td>${fdate(p.at)}</td><td>${esc(p.name)}</td><td>${eur(p.amount)}</td></tr>`).join('')}</table>`
-    : emptyBox('card', 'Nessun pagamento registrato.')}
-  </div>`;
-}
-
-function viewMenuAdmin() {
-  if (!db.restaurants.length) return `<div class="panel">${emptyBox('book', 'Crea prima un ristorante per poter inserire il menù.')}</div>`;
-  return `<div class="toolbar"><select id="menuSel" aria-label="Ristorante">${db.restaurants.map(r => `<option value="${r.id}" ${r.id === menuRid ? 'selected' : ''}>${esc(r.name)}</option>`).join('')}</select></div>`
-    + menuHtml(menuRid);
-}
-
-function viewImpostazioni() {
-  return `
-  <div class="panel"><h3>Account</h3>
-    <p class="muted">Accesso come <b>${esc(me.email)}</b>. Le password sono gestite da Supabase Auth: cifrate e mai visibili.</p>
-    <p style="margin-top:12px"><button class="btn ghost" data-act="a-pass">Cambia password admin</button></p>
-  </div>
-  <div class="panel"><h3>Backup dei dati</h3>
-    <p class="muted">Scarica un file con ristoranti, menù, ordini e pagamenti. Il database è già salvato online da Supabase; questo è un extra.</p>
-    <div class="toolbar" style="margin-top:12px">
-      <button class="btn" data-act="a-export">${ic('download', 16)} Scarica backup</button>
-    </div>
-  </div>`;
-}
-
-const titles = { dashboard: 'Panoramica', ristoranti: 'Ristoranti', abbonamenti: 'Abbonamenti', menu: 'Menù e prezzi', impostazioni: 'Impostazioni' };
-const themeBtn = () => `<button class="btn ghost small light" data-act="theme" aria-label="Cambia tema" title="Cambia tema">${ic(document.documentElement.dataset.theme === 'dark' ? 'sun' : 'moon', 16)}</button>`;
-
-function renderAdmin() {
-  if (!adminAuthed()) { $('#adminGate').hidden = false; return; }
-  $('#adminApp').hidden = false;
-  if (!db.restaurants.find(r => r.id === menuRid)) menuRid = db.restaurants[0]?.id || '';
-  $('#title').textContent = titles[view];
-  $$('#nav button').forEach(b => b.classList.toggle('active', b.dataset.view === view));
-  $('#actions').innerHTML =
-    view === 'ristoranti' ? `<button class="btn" data-act="new-rest">${ic('plus', 16)} Nuovo ristorante</button>` :
-    view === 'menu' && menuRid ? `<button class="btn ghost" data-act="new-cat" data-id="${menuRid}">Crea categoria</button><button class="btn" data-act="new-item" data-id="${menuRid}">${ic('plus', 16)} Nuovo piatto</button>` : '';
-  $('#view').innerHTML = { dashboard: viewDashboard, ristoranti: viewRistoranti, abbonamenti: viewAbbonamenti, menu: viewMenuAdmin, impostazioni: viewImpostazioni }[view]();
-  $('#menuSel')?.addEventListener('change', e => { menuRid = e.target.value; refresh(); });
-  $('#sideLinks').innerHTML =
-    `<a href="#/ristoratore">${ic('store', 16)}<span class="lbl">Area ristoratore</span></a>` +
-    (db.restaurants[0] ? `<a href="${esc(tableUrl(db.restaurants[0].id, 1))}" target="_blank" rel="noopener">${ic('ext', 16)}<span class="lbl">Anteprima cliente</span></a>` : '') +
-    `<span class="spacer"></span>${themeBtn()}<button class="btn ghost small light" data-act="a-logout">${ic('logout', 16)}<span class="lbl">Esci</span></button>`;
-}
-
-$('#nav').addEventListener('click', e => {
-  const b = e.target.closest('[data-view]');
-  if (b) { view = b.dataset.view; refresh(); window.scrollTo(0, 0); }
-});
-
-function restForm(r = {}, isNew = false) {
-  const emailField = (isNew || r.ownerId)
-    ? `<label for="fE">Email (serve per il login del ristoratore)</label><input id="fE" name="email" type="email" required value="${esc(r.email)}">` : '';
-  return `
-  <label for="fN">Nome ristorante</label><input id="fN" name="name" required maxlength="50" value="${esc(r.name)}">
-  <div class="row">
-    <div><label for="fO">Titolare</label><input id="fO" name="owner" required value="${esc(r.owner)}"></div>
-    <div><label for="fC">Città</label><input id="fC" name="city" value="${esc(r.city)}"></div>
-  </div>
-  ${emailField}
-  <div class="row">
-    ${isNew ? '<div><label for="fP">Password (min. 6 caratteri)</label><input id="fP" name="password" minlength="6" required></div>' : ''}
-    <div><label for="fT">Numero tavoli</label><input id="fT" name="tables" type="number" min="1" max="200" required value="${r.tables || 10}"></div>
-  </div>
-  <div class="row">
-    <div><label for="fPl">Piano</label><select id="fPl" name="plan">${db.plans.map(p => `<option value="${p.id}" ${p.id === (r.plan || 'base') ? 'selected' : ''}>${esc(p.name)} · ${eur(p.price)}</option>`).join('')}</select></div>
-    <div><label for="fX">Scadenza abbonamento</label><input id="fX" name="expires" type="date" required value="${r.expires || addMonths(today(), 1)}"></div>
-  </div>`;
-}
-
-/* =====================================================
-   2. RISTORATORE
-   ===================================================== */
-let rView = 'ordini';
-const rSess = () => me && me.ruolo === 'ristoratore' ? (db.restaurants.find(r => r.ownerId === me.id)?.id || null) : null;
-const curRest = () => db.restaurants.find(x => x.id === rSess());
-const rTitles = { ordini: 'Ordini', tavoli: 'Tavoli e QR', menu: 'Menù e prezzi', stats: 'Statistiche', impostazioni: 'Impostazioni' };
-
-$('#loginForm').addEventListener('submit', async e => {
+$('#form-piatto')?.addEventListener('submit', async (e) => {
   e.preventDefault();
-  const err = $('#loginErr'), btn = e.target.querySelector('button[type=submit]');
-  err.textContent = ''; btn.disabled = true;
-  const f = new FormData(e.target);
-  try { await doLogin(String(f.get('email')).trim(), String(f.get('password')), 'ristoratore'); e.target.reset(); }
-  catch (x) { err.textContent = x.message; }
-  btn.disabled = false;
+  if (!currentRistorante) return;
+  const id = $('#piatto-edit-id').value;
+  const allergeni = [...$$('#allergeni-grid input:checked')].map(c => c.value);
+  let immagine = ($('#piatto-immagine')?.value || '').trim();
+  const previewSrc = $('#piatto-preview')?.src || '';
+  if (!immagine && previewSrc && previewSrc.startsWith('data:')) immagine = previewSrc;
+  else if (!immagine && previewSrc && !$('#piatto-preview-wrap')?.classList.contains('hidden')) immagine = previewSrc;
+
+  const data = {
+    id_ristorante: currentRistorante.id,
+    nome: $('#piatto-nome').value.trim(),
+    descrizione: $('#piatto-desc').value.trim(),
+    categoria: $('#piatto-categoria').value,
+    prezzo: parseFloat($('#piatto-prezzo').value) || 0,
+    disponibile: $('#piatto-disponibile').checked,
+    allergeni,
+    immagine
+  };
+
+  if (id) {
+    const { error } = await sb.from('piatti').update(data).eq('id', id);
+    if (error) { toast('Errore'); console.error(error); return; }
+    toast('Piatto aggiornato');
+  } else {
+    const { error } = await sb.from('piatti').insert(data);
+    if (error) { toast('Errore'); console.error(error); return; }
+    toast('Piatto aggiunto');
+  }
+  $('#modal-piatto').classList.add('hidden');
+  await renderMenuTable($('#search-menu')?.value || '');
+  await renderRistDashboard();
 });
 
-function orderCard(o) {
-  const next = { nuovo: 'Inizia preparazione', preparazione: 'Segna servito' }[o.status];
-  const mins = Math.floor((Date.now() - o.at) / 60000);
-  const late = ['nuovo', 'preparazione'].includes(o.status) && mins >= 15;
-  const fresh = o.status === 'nuovo' && mins < 2;
-  return `<article class="ocard ${o.unread ? 'hasmsg' : ''} ${late ? 'late' : ''} ${fresh ? 'fresh' : ''}">
-    <div class="oh"><b>Tavolo ${o.table} <span class="num">#${o.n}</span></b>
-      <span class="agebox"><small class="muted">${ftime(o.at)}</small><span class="agechip ${late ? 'late' : ''}">${ic('clock', 12)} ${ago(o.at)}</span></span></div>
-    <ul>${o.items.map(i => `<li><span><b>${i.qty}×</b> ${esc(i.name)}</span><span>${eur(i.price * i.qty)}</span></li>`).join('')}</ul>
-    ${o.note ? `<div class="note">Nota: ${esc(o.note)}</div>` : ''}
-    ${o.messages.length ? `<div class="msgs"><b>${o.unread ? 'Nuovo messaggio dal cliente' : 'Messaggi del cliente'}</b>
-      ${o.messages.map(m => `<p>${esc(m.text)}</p>`).join('')}
-      ${o.unread ? `<button class="btn small" style="margin-top:8px" data-act="r-read" data-id="${o.id}">Segna come letto</button>` : ''}</div>` : ''}
-    <div class="of"><b class="tot">${eur(orderTotal(o))}</b>
-      <div class="btns">
-        <button class="btn small ghost icon" data-act="r-print" data-id="${o.id}" aria-label="Stampa la comanda" title="Stampa">${ic('print', 15)}</button>
-        ${o.status !== 'servito' ? `<button class="btn small ghost" data-act="r-cancel" data-id="${o.id}">Annulla</button>` : ''}
-        ${next ? `<button class="btn small" data-act="r-next" data-id="${o.id}">${next}</button>` : '<span class="badge servito">Servito</span>'}
-      </div></div></article>`;
-}
-
-function rOrdini(r) {
-  const open = db.orders.filter(o => o.rid === r.id && isOpen(o)).sort((a, b) => a.at - b.at);
-  const calls = db.calls.filter(c => c.rid === r.id && !c.done).sort((a, b) => a.at - b.at);
-  const cols = [['nuovo', 'Nuovi'], ['preparazione', 'In preparazione'], ['servito', 'Serviti']];
-  return (calls.length ? `<div class="calls">${calls.map(c => `<div class="call">
-      <span>${ic('bell', 18)}<span><b>Tavolo ${c.table}</b> ${c.type === 'conto' ? 'chiede il conto' : 'chiama il cameriere'} <small class="muted">da ${ago(c.at)}</small></span></span>
-      <button class="btn small" data-act="r-call-done" data-id="${c.id}">Fatto</button></div>`).join('')}</div>` : '')
-    + `<div class="board">${cols.map(([s, l]) => {
-      const list = open.filter(o => o.status === s);
-      return `<div class="col"><h3><span class="dot ${s}"></span>${l} <span class="cnt">${list.length}</span></h3>${list.map(orderCard).join('') || '<div class="empty slim">Nessun ordine</div>'}</div>`;
-    }).join('')}</div>`;
-}
-
-function rTavoli(r) {
-  let html = '<div class="tables">';
-  for (let n = 1; n <= r.tables; n++) {
-    const open = db.orders.filter(o => o.rid === r.id && o.table === n && isOpen(o));
-    const total = round2(open.reduce((s, o) => s + orderTotal(o), 0));
-    const call = db.calls.some(c => c.rid === r.id && c.table === n && !c.done);
-    const sum = {};
-    open.forEach(o => o.items.forEach(i => sum[i.name] = (sum[i.name] || 0) + i.qty));
-    html += `<div class="tbl ${open.length ? 'busy' : ''}"><b>Tavolo ${n} ${call ? '<span class="badge nuovo">Richiesta</span>' : ''}</b>
-      <span class="tstat">${open.length ? `${open.length} ${open.length === 1 ? 'ordine' : 'ordini'} · ${eur(total)}` : 'Libero'}</span>
-      ${open.length ? `<small>${Object.entries(sum).map(([k, v]) => `${v}× ${esc(k)}`).join(', ')}</small>` : ''}
-      <div class="tb"><button class="btn small ghost" data-act="r-qr" data-id="${n}">${ic('qr', 15)} QR</button>
-      ${open.length ? `<button class="btn small" data-act="r-close" data-id="${n}">Chiudi conto</button>` : ''}</div></div>`;
-  }
-  return html + '</div>';
-}
-
-function rStats(r) {
-  const valid = db.orders.filter(o => o.rid === r.id && o.status !== 'annullato');
-  const td = valid.filter(o => isToday(o.at));
-  const rev = round2(td.reduce((s, o) => s + orderTotal(o), 0));
-  const days = [...Array(7)].map((_, k) => { const d = new Date(); d.setDate(d.getDate() - 6 + k); return d; });
-  const chart = days.map(d => ({ l: d.toLocaleDateString('it-IT', { weekday: 'short' }), v: valid.filter(o => dkey(o.at) === dkey(d)).reduce((s, o) => s + orderTotal(o), 0) }));
-  const week = chart.reduce((s, d) => s + d.v, 0);
-  const top = {};
-  valid.forEach(o => o.items.forEach(i => top[i.name] = (top[i.name] || 0) + i.qty));
-  const topList = Object.entries(top).sort((a, b) => b[1] - a[1]).slice(0, 6);
-  const maxT = topList[0]?.[1] || 1;
-  const closed = db.orders.filter(o => o.rid === r.id && o.status === 'chiuso').sort((a, b) => b.at - a.at).slice(0, 20);
-  return `
-  <div class="stats">
-    <div class="stat main-stat"><b>${eur(rev)}</b><span>Venduto oggi</span></div>
-    <div class="stat"><b>${td.length}</b><span>Ordini di oggi</span></div>
-    <div class="stat"><b>${eur(td.length ? rev / td.length : 0)}</b><span>Valore medio ordine</span></div>
-    <div class="stat"><b>${eur(week)}</b><span>Venduto negli ultimi 7 giorni</span></div>
-  </div>
-  <div class="grid2">
-    <div class="panel"><h3>Vendite degli ultimi 7 giorni</h3>${barChart(chart)}</div>
-    <div class="panel"><h3>Piatti più venduti</h3>
-      ${topList.length ? topList.map(([k, v]) => `<div class="rank"><span>${esc(k)}</span><div class="rt"><div class="rf" style="width:${v / maxT * 100}%"></div></div><b>${v}</b></div>`).join('') : emptyBox('chart', 'Ancora nessun ordine.')}
-    </div>
-  </div>
-  <div class="panel"><h3>Ultimi conti chiusi</h3>
-    ${closed.length ? `<table><tr><th>N.</th><th>Tavolo</th><th>Data</th><th>Totale</th></tr>${closed.map(o => `<tr><td>#${o.n}</td><td>${o.table}</td><td>${fdate(o.at)} ${ftime(o.at)}</td><td>${eur(orderTotal(o))}</td></tr>`).join('')}</table>` : emptyBox('orders', 'Nessun conto chiuso.')}
-  </div>`;
-}
-
-function rImpostazioni(r) {
-  return `<div class="panel"><h3>${esc(r.name)}</h3>
-    <p>Piano: <b>${planOf(r.plan).name}</b>. Scadenza: <b>${fdate(r.expires)}</b> ${badge(r)}</p>
-    <p>Tavoli: <b>${r.tables}</b></p>
-    <p>Colore del menù: <span class="tag" style="background:${validColor(r.color)};color:${lum(validColor(r.color)) > .45 ? '#16231d' : '#fff'}">${validColor(r.color)}</span></p>
-    <p style="margin-top:14px"><button class="btn" data-act="r-settings">Modifica impostazioni</button></p></div>
-  <div class="panel"><h3>Codici QR</h3>
-    <p class="muted">Il menù cliente si apre solo scansionando il QR del tavolo. Se un codice viene condiviso o rubato puoi rigenerare tutti i codici: i QR già stampati smetteranno di funzionare.</p>
-    <p style="margin-top:14px"><button class="btn ghost bad" data-act="r-regen">Rigenera tutti i codici QR</button></p></div>`;
-}
-
-function renderRest() {
-  const r = curRest();
-  $('#restLogin').hidden = !!r;
-  $('#restPanel').hidden = !r;
-  if (!r) {
-    if (me && me.ruolo === 'ristoratore') $('#loginErr').textContent = "Nessun ristorante collegato a questo account. Contatta l'amministratore.";
-    return;
-  }
-  $('#rBrand').innerHTML = `<span class="logo">${esc((r.name || 'M').trim().charAt(0).toUpperCase())}</span><span class="bn">${esc(r.name)}</span>`;
-  $('#rTitle').textContent = rTitles[rView];
-  const pending = db.orders.filter(o => o.rid === r.id && o.status === 'nuovo').length + db.calls.filter(c => c.rid === r.id && !c.done).length;
-  $$('#rNav button').forEach(b => b.classList.toggle('active', b.dataset.rview === rView));
-  const pill = $('#rNav [data-rview=ordini] .pill');
-  pill.hidden = !pending; pill.textContent = pending;
-  document.title = pending ? `(${pending}) ${r.name} · MenuPro` : `${r.name} · MenuPro`;
-  $('#rSideLinks').innerHTML =
-    `<a href="${esc(tableUrl(r.id, 1))}" target="_blank" rel="noopener">${ic('ext', 16)}<span class="lbl">Anteprima cliente</span></a><span class="spacer"></span>${themeBtn()}` +
-    `<button class="btn ghost small light" data-act="r-logout">${ic('logout', 16)}<span class="lbl">Esci</span></button>`;
-  if (!restActive(r)) {
-    $('#rActions').innerHTML = '';
-    $('#rView').innerHTML = `<div class="panel">${emptyBox('pause', "Il tuo abbonamento non è attivo. Contatta l'amministratore per riattivare il servizio.")}</div>`;
-    return;
-  }
-  $('#rActions').innerHTML =
-    rView === 'ordini' ? `<button class="btn ghost" data-act="r-sound">${ic(soundOn ? 'volume' : 'mute', 16)} Suono ${soundOn ? 'attivo' : 'spento'}</button>` :
-    rView === 'tavoli' ? `<button class="btn ghost" data-act="r-qr-all">${ic('print', 16)} Stampa tutti i QR</button>` :
-    rView === 'stats' ? `<button class="btn ghost" data-act="r-csv">${ic('download', 16)} Esporta ordini (CSV)</button>` :
-    rView === 'menu' ? `<button class="btn ghost" data-act="new-cat" data-id="${r.id}">Crea categoria</button><button class="btn" data-act="new-item" data-id="${r.id}">${ic('plus', 16)} Nuovo piatto</button>` : '';
-  $('#rView').innerHTML = { ordini: () => rOrdini(r), tavoli: () => rTavoli(r), menu: () => menuHtml(r.id), stats: () => rStats(r), impostazioni: () => rImpostazioni(r) }[rView]();
-}
-
-$('#rNav').addEventListener('click', e => {
-  const b = e.target.closest('[data-rview]');
-  if (b) { rView = b.dataset.rview; refresh(); window.scrollTo(0, 0); }
-});
-
-/* ogni 30 secondi ricarica i dati (rete di sicurezza se il realtime si interrompe) */
-setInterval(() => {
-  if (document.hidden || !me || !location.hash.startsWith('#/ristoratore') || !rSess()) return;
-  if ($('#modalBg').hidden && !focusedInput()) liveReload();
-}, 30000);
-
-/* =====================================================
-   3. CLIENTE (telefono) — accessibile solo dal QR
-   Non legge mai le tabelle: usa solo le funzioni client_* di Supabase.
-   ===================================================== */
-let cart = {}, cartNote = '', cKey = '', cSearch = '', cBanner = '', cEnter = false;
-const cTags = new Set(), cAvoid = new Set();
-let CD = null;   // dati del cliente: { key, rid, table, tok, status, restaurant, items, calls, orders }
-const MINE_KEY = 'menupro_my_orders';
-const getMine = () => { try { return JSON.parse(localStorage.getItem(MINE_KEY)) || []; } catch { return []; } };
-const addMine = id => { try { localStorage.setItem(MINE_KEY, JSON.stringify([...getMine(), id].slice(-40))); } catch { } };
-const saveCart = () => { try { sessionStorage.setItem('menupro_cart_' + cKey, JSON.stringify({ cart, cartNote })); } catch { } };
-const loadCart = () => { try { const x = JSON.parse(sessionStorage.getItem('menupro_cart_' + cKey)); cart = x?.cart || {}; cartNote = x?.cartNote || ''; } catch { cart = {}; cartNote = ''; } };
-const openClient = what => { cOpen = what; cEnter = true; refresh(); };
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-/* scarica menù e ordini del cliente; restituisce i dati oppure null se la rete non risponde */
-async function fetchClient(rid, t, tok) {
-  const base = { p_rid: rid, p_num: +t, p_codice: tok };
-  const { data, error } = await sb.rpc('client_menu', base);
-  if (error || !data) return null;
-  const D = { key: [rid, t, tok].join('/'), rid, table: +t, tok, status: data.status, restaurant: data.restaurant, items: data.items || [], calls: data.calls || [], orders: [] };
-  if (D.status === 'ok') {
-    const ids = getMine();
-    if (ids.length) {
-      const r2 = await sb.rpc('client_my_orders', { ...base, p_ids: ids });
-      D.orders = r2.data || [];
-    }
-  }
-  return D;
-}
-async function enterClient(rid, t, tok) {
-  document.body.classList.add('is-client');
-  document.documentElement.dataset.theme = 'light';   // il menù cliente è sempre in tema chiaro
-  const key = [rid, t, tok].join('/');
-  if (CD && CD.key === key) { renderClient(); return; }
-  if (!rid || !UUID.test(rid) || !(+t > 0) || !tok) { CD = { key, status: 'invalid' }; renderClient(); return; }
-  CD = null;
-  $('#clientApp').innerHTML = '<div class="phone"><div class="cmsg"><p class="muted">Caricamento del menù…</p></div></div>';
-  const D = await fetchClient(rid, t, tok);
-  const p = location.hash.replace(/^#\/?/, '').split('/');
-  if (p[0] !== 'c' || p[1] !== rid || p[2] !== t || p[3] !== tok) return;   // l'indirizzo è cambiato nel frattempo
-  CD = D || { key, status: 'error' };
-  renderClient();
-}
-
-function applySearch() {
-  const q = cSearch.trim().toLowerCase();
-  let shown = 0;
-  $$('.citem').forEach(el => {
-    const t = (el.dataset.t || '').split('|'), a = (el.dataset.a || '').split('|');
-    let ok = !q || el.dataset.s.includes(q);
-    for (const x of cTags) if (!(t.includes(x) || (x === 'Vegetariano' && t.includes('Vegano')))) ok = false;
-    for (const x of cAvoid) if (a.includes(x)) ok = false;
-    el.hidden = !ok; if (ok) shown++;
+window.editPiatto = async function(id) {
+  const p = currentRistorante.menu.find(x => x.id === id);
+  if (!p) return;
+  $('#modal-piatto-title').textContent = 'Modifica piatto';
+  $('#piatto-edit-id').value = p.id;
+  $('#piatto-nome').value = p.nome;
+  $('#piatto-desc').value = p.descrizione || '';
+  const sel = $('#piatto-categoria');
+  sel.innerHTML = (currentRistorante.categorie || []).map(c =>
+    `<option value="${c}" ${c === p.categoria ? 'selected' : ''}>${c}</option>`
+  ).join('');
+  $('#piatto-prezzo').value = p.prezzo;
+  $('#piatto-disponibile').checked = p.disponibile !== false;
+  if ($('#piatto-immagine')) $('#piatto-immagine').value = (p.immagine && !p.immagine.startsWith('data:')) ? p.immagine : '';
+  if (p.immagine) showPiattoPreview(p.immagine);
+  else resetPiattoImage();
+  $$('#allergeni-grid input').forEach(c => {
+    c.checked = (p.allergeni || []).includes(c.value);
   });
-  $$('.ccat').forEach(s => s.hidden = ![...s.querySelectorAll('.citem')].some(i => !i.hidden));
-  const nr = $('#noRes'); if (nr) nr.hidden = shown > 0;
-}
-
-/* evidenzia la categoria visibile mentre si scorre */
-function spy() {
-  if ($('#clientApp').hidden) return;
-  const secs = $$('.ccat:not([hidden])');
-  if (!secs.length) return;
-  let c = +secs[0].id.slice(4);
-  secs.forEach(s => { if (s.getBoundingClientRect().top <= 130) c = +s.id.slice(4); });
-  $$('#chips button').forEach(b => {
-    const on = +b.dataset.id === c;
-    if (b.classList.contains('on') !== on) {
-      b.classList.toggle('on', on);
-      if (on) { const box = b.parentElement; box.scrollTo({ left: b.offsetLeft - box.clientWidth / 2 + b.clientWidth / 2, behavior: 'smooth' }); }
-    }
-  });
-}
-window.addEventListener('scroll', spy, { passive: true });
-
-function renderClient() {
-  const el = $('#clientApp');
-  const D = CD;
-  document.body.classList.add('is-client');
-  document.documentElement.dataset.theme = 'light';
-  const msg = (icon, h, p) => { el.innerHTML = `<div class="phone"><div class="cmsg"><div class="qricon">${ic(icon, 52)}</div><h2>${h}</h2><p class="muted">${p}</p></div></div>`; syncLock(); };
-  if (!D || D.status === 'error') return msg('qr', 'Connessione non riuscita', 'Non riesco a caricare il menù. Controlla la rete e inquadra di nuovo il codice QR.');
-  if (D.status === 'invalid') return msg('qr', 'Scansiona il codice QR', 'Il menù si apre solo inquadrando il codice QR che trovi sul tuo tavolo. Se il codice non funziona, chiedi aiuto al personale.');
-  if (D.status === 'inactive') return msg('pause', 'Menù non disponibile', 'Il servizio è momentaneamente sospeso. Chiedi al personale.');
-
-  const r = D.restaurant, rid = D.rid, table = D.table;
-  document.title = r.name + ' · Menù';
-  setBrand(validColor(r.color));
-
-  const ck = rid + '/' + table;
-  if (cKey !== ck) { cKey = ck; cOpen = null; cDish = null; cSearch = ''; cBanner = ''; cTags.clear(); cAvoid.clear(); loadCart(); }
-  const items = D.items;
-  Object.keys(cart).forEach(id => { if (!items.some(i => i.id === id && i.available !== false)) delete cart[id]; });
-  const dish = cOpen === 'dish' ? items.find(i => i.id === cDish) : null;
-  if (cOpen === 'dish' && !dish) cOpen = null;
-  const dishSrc = dish ? imgSrc(dish.img) : '';
-  const cats = (r.cats || []).filter(c => items.some(i => i.cat === c));
-  const count = Object.values(cart).reduce((a, b) => a + b, 0);
-  const total = round2(items.reduce((s, i) => s + (cart[i.id] || 0) * i.price, 0));
-  const mine = D.orders;
-  const mineTotal = round2(mine.filter(o => o.status !== 'annullato').reduce((s, o) => s + orderTotal(o), 0));
-  const nFilters = cTags.size + cAvoid.size;
-  const callPending = type => D.calls.includes(type);
-  const enter = cEnter ? 'enter' : '';
-
-  const qty = i => cart[i.id]
-    ? `<div class="qty"><button data-act="c-dec" data-id="${i.id}" aria-label="Togli uno">${ic('minus', 16)}</button><b>${cart[i.id]}</b><button data-act="c-inc" data-id="${i.id}" aria-label="Aggiungi uno">${ic('plus', 16)}</button></div>`
-    : `<button class="add" data-act="c-inc" data-id="${i.id}">Aggiungi</button>`;
-  const cartLines = items.filter(i => cart[i.id]).map(i => `<div class="cline"><div><b>${esc(i.name)}</b><br><small class="muted">${eur(i.price)}</small></div>${qty(i)}</div>`).join('');
-  const track = o => o.status === 'annullato' ? '' : `<div class="track">${['nuovo', 'preparazione', 'servito'].map((s, k) => `<div class="st ${['nuovo', 'preparazione', 'servito'].indexOf(o.status) >= k ? 'done' : ''}"><i></i><span>${STATUS_LABEL[s]}</span></div>`).join('')}</div>`;
-
-  const y = window.scrollY, cx = $('#chips')?.scrollLeft || 0, sy = $('.sheet')?.scrollTop || 0;
-  el.innerHTML = `<div class="phone">
-    <header class="chead">
-      <button class="ibtn" data-act="c-help" aria-label="Chiama il personale">${ic('bell', 24)}</button>
-      <div class="ctitle">${esc(r.name)}<small>Tavolo ${table}</small></div>
-      <button class="ibtn" data-act="c-sheet" aria-label="Carrello e ordini">${ic('cart', 24)}
-        ${count ? `<span class="cbadge">${count}</span>` : mine.length ? `<span class="cbadge alt">${mine.length}</span>` : ''}</button>
-    </header>
-    <div class="csearchrow">
-      <div class="searchbox pill">${ic('search', 18)}<input id="cSearch" type="search" placeholder="Cerca un piatto" value="${esc(cSearch)}" aria-label="Cerca nel menù"></div>
-      <button class="fbtn ${nFilters ? 'on' : ''}" data-act="c-filters" aria-label="Filtri per dieta e allergeni">${ic('filter', 20)}${nFilters ? `<span class="cbadge">${nFilters}</span>` : ''}</button>
-    </div>
-    ${cats.length > 1 ? `<nav class="chips" id="chips" aria-label="Categorie">${cats.map((c, n) => `<button data-act="c-cat" data-id="${n}" class="${n === 0 ? 'on' : ''}">${esc(c)}</button>`).join('')}</nav>` : ''}
-    <main>
-      ${cats.length ? cats.map((c, n) => `<section class="ccat" id="cat-${n}"><h2>${esc(c)}</h2>
-        ${items.filter(i => i.cat === c).map(i => {
-          const src = imgSrc(i.img);
-          return `<div class="citem ${i.available === false ? 'off' : ''}" data-s="${esc((i.name + ' ' + i.desc + ' ' + i.tags.join(' ') + ' ' + i.allergens.join(' ')).toLowerCase())}" data-t="${esc(i.tags.join('|'))}" data-a="${esc(i.allergens.join('|'))}">
-          <div class="info"><b>${esc(i.name)}</b>${i.featured ? `<span class="star" title="Consigliato">${ic('star', 14)}</span>` : ''}<small>${esc(i.desc)}</small>${infoHtml(i)}<div class="pr">${eur(i.price)}</div></div>
-          <div class="cside">${src ? `<button class="thumb" data-act="c-view" data-id="${i.id}" aria-label="Vedi ${esc(i.name)}"><img class="dimg" src="${esc(src)}" alt="" loading="lazy" decoding="async"></button>` : ''}${i.available === false ? '<small class="muted">Esaurito</small>' : qty(i)}</div></div>`;
-        }).join('')}
-      </section>`).join('') + `<div class="cmsg slim" id="noRes" hidden><p class="muted">Nessun piatto corrisponde alla ricerca o ai filtri scelti.</p></div>
-        <p class="legal">Hai allergie o intolleranze? Segnalalo al personale prima di ordinare.</p>`
-        : '<div class="cmsg"><p class="muted">Il menù non è ancora disponibile.</p></div>'}
-    </main>
-    ${count && cOpen !== 'sheet' ? `<button class="cartbar" data-act="c-sheet"><span>${ic('cart', 18)} Vedi carrello (${count})</span><span>${eur(total)}</span></button>` : ''}
-
-    ${cOpen === 'dish' && dish ? `<div class="overlay" data-act="c-close"></div>
-    <section class="sheet dish ${dishSrc ? 'hasimg' : ''} ${enter}" role="dialog" aria-label="${esc(dish.name)}">
-      <button class="close" data-act="c-close" aria-label="Chiudi">${ic('x', 22)}</button>
-      ${dishSrc ? `<div class="dishimg"><img class="dimg" src="${esc(dishSrc)}" alt="${esc(dish.name)}"></div>` : ''}
-      <h2>${esc(dish.name)}${dish.featured ? `<span class="star" title="Consigliato">${ic('star', 16)}</span>` : ''}</h2>
-      ${dish.desc ? `<p class="muted">${esc(dish.desc)}</p>` : ''}
-      ${infoHtml(dish)}
-      <div class="dishfoot"><b class="dprice">${eur(dish.price)}</b>${dish.available === false ? '<span class="tag out">Esaurito</span>' : qty(dish)}</div>
-    </section>` : ''}
-
-    ${cOpen === 'help' ? `<div class="overlay" data-act="c-close"></div>
-    <section class="sheet ${enter}" role="dialog" aria-label="Serve aiuto?">
-      <button class="close" data-act="c-close" aria-label="Chiudi">${ic('x', 22)}</button>
-      <h2>Serve aiuto?</h2>
-      <p class="muted">Il personale riceve subito la richiesta al tavolo ${table}.</p>
-      <button class="svcbtn" data-act="c-call" data-id="cameriere" ${callPending('cameriere') ? 'disabled' : ''}>${ic('wave', 24)}<span><b>Chiama il cameriere</b><small>${callPending('cameriere') ? 'Richiesta inviata, arriviamo' : 'Arriviamo al tavolo'}</small></span></button>
-      <button class="svcbtn" data-act="c-call" data-id="conto" ${callPending('conto') ? 'disabled' : ''}>${ic('card', 24)}<span><b>Richiedi il conto</b><small>${callPending('conto') ? 'Richiesta inviata, arriviamo' : 'Portiamo il conto al tavolo'}</small></span></button>
-    </section>` : ''}
-
-    ${cOpen === 'filters' ? `<div class="overlay" data-act="c-close"></div>
-    <section class="sheet ${enter}" role="dialog" aria-label="Filtri">
-      <button class="close" data-act="c-close" aria-label="Chiudi">${ic('x', 22)}</button>
-      <h2>Filtri</h2>
-      <h3>Mostra solo i piatti</h3>
-      <div class="checks pills">${TAGS.map(x => `<label><input type="checkbox" data-f="tag" value="${x}" ${cTags.has(x) ? 'checked' : ''}><span>${x}</span></label>`).join('')}</div>
-      <h3>Escludi i piatti con</h3>
-      <div class="checks pills">${ALLERGENS.map(x => `<label><input type="checkbox" data-f="avoid" value="${x}" ${cAvoid.has(x) ? 'checked' : ''}><span>${x}</span></label>`).join('')}</div>
-      <p class="muted" style="margin-top:14px;font-size:13px">Il filtro è un aiuto, non una garanzia: in caso di allergia chiedi sempre al personale.</p>
-      <div class="sheet-actions"><button class="btn ghost" data-act="c-reset">Azzera filtri</button><button class="btn" data-act="c-close">Mostra i piatti</button></div>
-    </section>` : ''}
-
-    ${cOpen === 'sheet' ? `<div class="overlay" data-act="c-close"></div>
-    <section class="sheet ${enter}" role="dialog" aria-label="Il tuo ordine">
-      <button class="close" data-act="c-close" aria-label="Chiudi">${ic('x', 22)}</button>
-      <h2>Il tuo ordine</h2>
-      ${cBanner ? `<div class="okbanner">${ic('check', 18)}<span>${esc(cBanner)}</span></div>` : ''}
-      ${count ? `${cartLines}
-        <div class="ctotal"><span>Totale</span><span>${eur(total)}</span></div>
-        <label for="cNote">Messaggio per il ristorante (facoltativo)</label>
-        <textarea id="cNote" rows="2" maxlength="300" placeholder="Es. senza cipolla, cotto al sangue">${esc(cartNote)}</textarea>
-        <button class="btn wide" style="margin-top:14px" data-act="c-send">Invia ordine</button>`
-        : '<p class="muted">Il carrello è vuoto. Aggiungi qualcosa dal menù.</p>'}
-      ${mine.length ? `<h3>I tuoi ordini inviati</h3>${mine.map(o => `<div class="myorder">
-        <div class="mh"><b>Ordine #${o.n} · ${ftime(o.at)}</b><span class="badge ${o.status}">${STATUS_LABEL[o.status]}</span></div>
-        ${track(o)}
-        <p>${o.items.map(i => `${i.qty}× ${esc(i.name)}`).join(', ')}</p>
-        ${o.note ? `<p class="muted">Nota: ${esc(o.note)}</p>` : ''}
-        ${o.messages.map(m => `<p class="msg">Tu: ${esc(m.text)}</p>`).join('')}
-        ${['nuovo', 'preparazione'].includes(o.status) ? `<div class="msgform"><input id="msg-${o.id}" maxlength="200" placeholder="Scrivi per modificare l'ordine" aria-label="Messaggio per l'ordine ${o.n}"><button class="btn small" data-act="c-msg" data-id="${o.id}">Invia</button></div>` : ''}
-      </div>`).join('')}
-      <div class="ctotal"><span>Ordinato finora</span><span>${eur(mineTotal)}</span></div>` : ''}
-    </section>` : ''}
-  </div>`;
-  cEnter = false;
-  syncLock();
-  applySearch();
-  window.scrollTo(0, y);
-  const chips = $('#chips'); if (chips) chips.scrollLeft = cx;
-  const sh = $('.sheet'); if (sh) sh.scrollTop = sy;
-  spy();
-}
-
-/* il cliente vede lo stato degli ordini aggiornarsi da solo (ogni 8 secondi) */
-setInterval(async () => {
-  if (document.hidden || !location.hash.startsWith('#/c/') || !CD || CD.status !== 'ok') return;
-  const { rid, table, tok } = CD;
-  const prev = Object.fromEntries(CD.orders.map(o => [o.id, o.status]));
-  const D = await fetchClient(rid, String(table), tok);
-  if (!D || !CD || CD.key !== D.key) return;
-  CD = D;
-  if (D.status === 'ok') {
-    for (const o of D.orders) if (prev[o.id] && prev[o.id] !== o.status) {
-      if (o.status === 'preparazione') toast(`Ordine #${o.n}: lo stiamo preparando`);
-      else if (o.status === 'servito') toast(`Ordine #${o.n}: è in arrivo al tavolo`);
-      else if (o.status === 'annullato') toast(`Ordine #${o.n} annullato dal ristorante`);
-    }
-  }
-  if ($('#modalBg').hidden && !focusedInput()) renderClient();
-}, 8000);
-
-/* aggiorna i dati del cliente dopo un'azione */
-async function clientSync() {
-  if (!CD) return;
-  const D = await fetchClient(CD.rid, String(CD.table), CD.tok);
-  if (D) CD = D;
-}
-
-/* =====================================================
-   AZIONI (click su elementi con data-act)
-   ===================================================== */
-const actions = {
-  'theme'() { const t = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'; applyTheme(t); try { localStorage.setItem(THEME_KEY, t); } catch { } refresh(); },
-
-  /* ---- admin: ristoranti e account ---- */
-  'new-rest'() {
-    openModal('Nuovo ristorante e account', restForm({}, true), async d => {
-      if (emailTaken(d.email)) { toast('Esiste già un account con questa email'); return false; }
-      await api('crea-ristorante', {
-        nome: d.name.trim(), titolare: d.owner.trim(), citta: (d.city || '').trim(), email: d.email.trim(),
-        password: d.password, n_tavoli: +d.tables, id_piano: d.plan, scadenza: d.expires
-      });
-      await reload(); toast('Ristorante e account creati');
-    });
-  },
-  'edit-rest'(id) {
-    openModal('Modifica ristorante', restForm(db.restaurants.find(x => x.id === id)), async d => {
-      const r = db.restaurants.find(x => x.id === id);
-      if (d.email && emailTaken(d.email, id)) { toast('Esiste già un account con questa email'); return false; }
-      await q(sb.from('ristorante').update({
-        nome: d.name.trim(), titolare: d.owner.trim(), citta: (d.city || '').trim(),
-        n_tavoli: +d.tables, id_piano: d.plan, scadenza: d.expires
-      }).eq('id', id));
-      if (r.ownerId && d.email && d.email.trim().toLowerCase() !== r.email.toLowerCase())
-        await api('cambia-email', { user_id: r.ownerId, email: d.email.trim() });
-      await q(sb.rpc('ensure_tavoli', { p_rid: id }));
-      await reload(); toast('Modifiche salvate');
-    });
-  },
-  'creds'(id) {
-    const r = db.restaurants.find(x => x.id === id);
-    if (!r.ownerId) {
-      openModal('Collega un account a ' + r.name, `
-        <p class="muted">Questo ristorante non ha ancora un account di accesso. Crealo ora.</p>
-        <label for="cE">Email</label><input id="cE" name="email" type="email" required>
-        <label for="cP">Password (min. 6 caratteri)</label><input id="cP" name="password" minlength="6" required>`, async d => {
-        if (emailTaken(d.email)) { toast('Esiste già un account con questa email'); return false; }
-        await api('collega-account', { id_ristorante: id, email: d.email.trim(), password: d.password });
-        await reload(); toast('Account creato');
-      });
-      return;
-    }
-    openModal('Account di ' + r.name, `
-      <p>Email: <b>${esc(r.email)}</b></p>
-      <p class="muted" style="margin-top:6px">La password non è visibile perché è salvata cifrata. Se il ristoratore l'ha dimenticata, generane una nuova.</p>
-      <p style="margin-top:12px">Link di accesso:</p><p class="qrlink">${esc(siteUrl() + '#/ristoratore')}</p>
-      <p style="margin-top:14px"><button type="button" class="btn" data-act="reset-pass" data-id="${r.id}">Genera nuova password</button></p>`, null);
-  },
-  async 'reset-pass'(id) {
-    const r = db.restaurants.find(x => x.id === id);
-    if (!(await ask('Nuova password', `Generare una nuova password per <b>${esc(r.name)}</b>? Quella attuale smetterà di funzionare.`, 'Genera'))) return;
-    const pw = rnd(8);
-    await api('reset-password', { user_id: r.ownerId, password: pw });
-    openModal('Nuova password', `<p>Comunica al ristoratore questi dati. La password non verrà più mostrata.</p>
-      <p style="margin-top:12px">Email: <b>${esc(r.email)}</b></p>
-      <p>Password: <b class="mono">${esc(pw)}</b></p>`, null);
-  },
-  async 'del-rest'(id) {
-    const r = db.restaurants.find(x => x.id === id);
-    if (!(await ask('Elimina ristorante', `Eliminare <b>${esc(r.name)}</b>, il suo account, il suo menù e i suoi ordini? L'operazione non si può annullare.`, 'Elimina', true))) return;
-    await api('elimina-ristorante', { id_ristorante: id });
-    await reload(); toast('Ristorante eliminato');
-  },
-  'open-menu'(id) { menuRid = id; view = 'menu'; refresh(); window.scrollTo(0, 0); },
-  async 'renew'(id) {
-    const r = db.restaurants.find(x => x.id === id);
-    const price = planOf(r.plan).price;
-    if (!(await ask('Registra pagamento', `Registrare il pagamento di <b>${eur(price)}</b> per <b>${esc(r.name)}</b> e rinnovare di 1 mese?`, 'Registra'))) return;
-    const exp = addMonths(r.expires > today() ? r.expires : today(), 1);
-    await q(sb.from('ristorante').update({ scadenza: exp, sospeso: false }).eq('id', id));
-    await q(sb.from('pagamento').insert({ id_ristorante: id, nome: r.name, importo: price }));
-    await reload(); toast('Pagamento registrato. Scadenza: ' + fdate(exp));
-  },
-  async 'toggle'(id) {
-    const r = db.restaurants.find(x => x.id === id);
-    await q(sb.from('ristorante').update({ sospeso: !r.suspended }).eq('id', id));
-    await reload(); toast(r.suspended ? 'Abbonamento riattivato' : 'Abbonamento sospeso');
-  },
-  'edit-plan'(id) {
-    const p0 = db.plans.find(x => x.id === id);
-    openModal('Modifica piano ' + p0.name, `
-      <label for="pN">Nome</label><input id="pN" name="name" required value="${esc(p0.name)}">
-      <label for="pP">Prezzo mensile (€)</label><input id="pP" name="price" type="number" step="1" min="0" required value="${p0.price}">
-      <label for="pD">Descrizione</label><input id="pD" name="desc" value="${esc(p0.desc)}">`,
-      async d => {
-        await q(sb.from('piano').update({ nome: d.name, prezzo: +d.price, descrizione: d.desc }).eq('id', id));
-        await reload(); toast('Piano aggiornato');
-      });
-  },
-
-  /* ---- admin: impostazioni ---- */
-  'a-pass'() {
-    openModal('Cambia password admin', `
-      <label for="ap1">Nuova password (min. 6 caratteri)</label><input id="ap1" name="p1" type="password" minlength="6" required autocomplete="new-password">
-      <label for="ap2">Ripeti la password</label><input id="ap2" name="p2" type="password" minlength="6" required autocomplete="new-password">`, async d => {
-      if (d.p1 !== d.p2) { toast('Le due password non coincidono'); return false; }
-      const { error } = await sb.auth.updateUser({ password: d.p1 });
-      if (error) throw new Error(humanError(error));
-      toast('Password aggiornata');
-    });
-  },
-  'a-export'() {
-    download(`menupro-backup-${today()}.json`, new Blob([JSON.stringify(db, null, 2)], { type: 'application/json' }));
-  },
-  'a-logout'() { return doLogout(); },
-
-  /* ---- menù: piatti e categorie (admin e ristoratore) ---- */
-  'new-cat'(rid) {
-    openModal('Crea categoria', `<label for="ncN">Nome categoria</label><input id="ncN" name="name" required maxlength="100" placeholder="Es. Menù bambini">`, async d => {
-      const name = d.name.trim();
-      if (!name) return false;
-      if (catsOf(rid).some(c => c.toLowerCase() === name.toLowerCase())) { toast('Questa categoria esiste già'); return false; }
-      await createCat(rid, name); await reload(); toast('Categoria creata');
-    });
-  },
-  'new-item'(rid) {
-    openModal('Nuovo piatto', itemForm(rid), async d => {
-      const x = await itemData(rid, d);
-      if (!x) { toast('Inserisci il nome della nuova categoria'); return false; }
-      const pos = db.menu.filter(m => m.catId === x.id_categoria).length;
-      await q(sb.from('piatto').insert({ ...x, posizione: pos }));
-      await reload(); toast('Piatto aggiunto');
-    });
-  },
-  'edit-item'(id) {
-    const i0 = db.menu.find(x => x.id === id);
-    openModal('Modifica piatto', itemForm(i0.rid, i0), async d => {
-      const x = await itemData(i0.rid, d);
-      if (!x) { toast('Inserisci il nome della nuova categoria'); return false; }
-      await q(sb.from('piatto').update(x).eq('id', id));
-      await reload(); toast('Piatto aggiornato');
-    });
-  },
-  async 'dup-item'(id) {
-    const i = db.menu.find(x => x.id === id);
-    await q(sb.from('piatto').insert({
-      id_categoria: i.catId, nome: (i.name + ' (copia)').slice(0, 100), descrizione: i.desc, prezzo: i.price,
-      immagine: i.img || null, allergeni: i.allergens, tag: i.tags, consigliato: i.featured,
-      disponibile: i.available !== false, posizione: i.pos + 1
-    }));
-    await reload(); toast('Piatto duplicato: modificane il nome');
-  },
-  async 'del-item'(id) {
-    const i = db.menu.find(x => x.id === id);
-    if (!(await ask('Elimina piatto', `Eliminare <b>${esc(i.name)}</b> dal menù?`, 'Elimina', true))) return;
-    await q(sb.from('piatto').delete().eq('id', id));
-    await reload(); toast('Piatto eliminato');
-  },
-  async 'avail-item'(id) {
-    const i = db.menu.find(x => x.id === id);
-    await q(sb.from('piatto').update({ disponibile: i.available === false }).eq('id', id));
-    await reload(); toast(i.available === false ? 'Di nuovo disponibile' : 'Segnato come esaurito');
-  },
-  'cat-up'(n) { return moveCat(+n, -1); },
-  'cat-down'(n) { return moveCat(+n, 1); },
-  'cat-ren'(n) {
-    const rid = curRid(), r = db.restaurants.find(x => x.id === rid), old = r.cats[+n];
-    openModal('Rinomina categoria', `<label for="rcN">Nome</label><input id="rcN" name="name" required maxlength="100" value="${esc(old)}">`, async d => {
-      const nn = d.name.trim(); if (!nn) return false;
-      if (r.cats.some(c => c !== old && c.toLowerCase() === nn.toLowerCase())) { toast('Questa categoria esiste già'); return false; }
-      await q(sb.from('categoria').update({ nome: nn }).eq('id', r.catIds[old]));
-      await reload(); toast('Categoria rinominata');
-    });
-  },
-  async 'cat-del'(n) {
-    const rid = curRid(), r = db.restaurants.find(x => x.id === rid), c = r.cats[+n];
-    if (db.menu.some(m => m.rid === rid && m.cat === c)) { toast('Sposta o elimina prima i piatti di questa categoria'); return; }
-    if (!(await ask('Elimina categoria', `Eliminare la categoria <b>${esc(c)}</b>?`, 'Elimina', true))) return;
-    await q(sb.from('categoria').delete().eq('id', r.catIds[c]));
-    await reload(); toast('Categoria eliminata');
-  },
-
-  /* ---- foto del piatto (dentro il form) ---- */
-  'img-pick'() { $('#imgFile')?.click(); },
-  'img-clear'() {
-    const v = $('#imgVal'); if (!v) return;
-    v.value = ''; const u = $('#imgUrl'); if (u) u.value = '';
-    setPrev('');
-  },
-
-  /* ---- ristoratore ---- */
-  async 'r-next'(id) {
-    const o = db.orders.find(x => x.id === id);
-    await q(sb.from('ordine').update({ stato: o.status === 'nuovo' ? 'preparazione' : 'servito' }).eq('id', id));
-    await reload();
-  },
-  async 'r-cancel'(id) {
-    if (!(await ask('Annulla ordine', 'Annullare questo ordine? Il cliente vedrà che è stato annullato.', 'Annulla ordine', true))) return;
-    await q(sb.from('ordine').update({ stato: 'annullato', non_letto: false }).eq('id', id));
-    await reload(); toast('Ordine annullato');
-  },
-  async 'r-read'(id) { await q(sb.from('ordine').update({ non_letto: false }).eq('id', id)); await reload(); },
-  async 'r-call-done'(id) { await q(sb.from('chiamata').update({ fatto: true }).eq('id', id)); await reload(); },
-  'r-sound'() { soundOn = !soundOn; if (soundOn) beep(); refresh(); },
-  'r-print'(id) {
-    const o = db.orders.find(x => x.id === id);
-    const w = window.open('', '_blank', 'width=380,height=600');
-    if (!w) { toast('Consenti i popup per stampare'); return; }
-    w.document.write(`<!doctype html><meta charset="utf-8"><title>Comanda</title><style>body{font-family:monospace;padding:12px;font-size:16px}h2{margin:0}hr{border:0;border-top:1px dashed #000}</style>
-      <h2>Tavolo ${o.table} · #${o.n}</h2><p>${ftime(o.at)}</p><hr>
-      ${o.items.map(i => `<div><b>${i.qty} x</b> ${esc(i.name)}</div>`).join('')}
-      ${o.note ? `<hr><b>NOTA:</b> ${esc(o.note)}` : ''}
-      ${o.messages.map(m => `<div>Msg: ${esc(m.text)}</div>`).join('')}`);
-    w.document.close(); w.focus(); w.print();
-  },
-  async 'r-close'(n) {
-    const rid = rSess();
-    const open = db.orders.filter(o => o.rid === rid && o.table === +n && isOpen(o));
-    const total = round2(open.reduce((s, o) => s + orderTotal(o), 0));
-    if (!(await ask('Chiudi il conto', `Chiudere il conto del tavolo ${n}? Totale <b>${eur(total)}</b>.`, 'Chiudi il conto'))) return;
-    await q(sb.from('ordine').update({ stato: 'chiuso' }).in('id', open.map(o => o.id)));
-    await q(sb.from('chiamata').update({ fatto: true }).eq('id_ristorante', rid).eq('numero_tavolo', +n).eq('fatto', false));
-    await reload(); toast('Conto chiuso');
-  },
-  'r-qr'(n) {
-    const rid = rSess(), url = tableUrl(rid, n);
-    openModal('QR tavolo ' + n, `<div class="qrbox"><div id="qrBox"></div></div>
-      <p class="qrlink">${esc(url)}</p>
-      <p style="margin-top:12px" class="btns"><button type="button" class="btn small" data-act="r-qr-dl" data-id="${n}">${ic('download', 15)} Scarica PNG</button>
-      <a class="btn small ghost" href="${esc(url)}" target="_blank" rel="noopener">Apri come cliente</a></p>`, null);
-    if (typeof QRCode !== 'undefined') new QRCode($('#qrBox'), { text: url, width: 220, height: 220 });
-    else $('#qrBox').textContent = 'Libreria QR non caricata: controlla la connessione.';
-  },
-  'r-qr-dl'(n) {
-    const c = document.querySelector('#qrBox canvas'); if (!c) return;
-    const a = document.createElement('a'); a.href = c.toDataURL('image/png'); a.download = `tavolo-${n}.png`; a.click();
-  },
-  'r-qr-all'() {
-    const r = curRest();
-    if (typeof QRCode === 'undefined') { toast('Libreria QR non caricata: controlla la connessione'); return; }
-    const tmp = document.createElement('div'); tmp.style.cssText = 'position:fixed;left:-9999px'; document.body.appendChild(tmp);
-    let cards = '';
-    for (let n = 1; n <= r.tables; n++) {
-      const d = document.createElement('div'); tmp.appendChild(d);
-      new QRCode(d, { text: tableUrl(r.id, n), width: 220, height: 220 });
-      const src = d.querySelector('canvas')?.toDataURL() || '';
-      cards += `<div class="c"><h2>${esc(r.name)}</h2><img src="${src}" alt=""><p>Tavolo ${n}</p><small>Inquadra il codice per vedere il menù e ordinare</small></div>`;
-    }
-    tmp.remove();
-    const w = window.open('', '_blank');
-    if (!w) { toast('Consenti i popup per stampare'); return; }
-    w.document.write(`<!doctype html><meta charset="utf-8"><title>QR tavoli</title><style>body{font-family:sans-serif;margin:0}.g{display:grid;grid-template-columns:repeat(2,1fr)}.c{text-align:center;padding:24px;border:1px dashed #999;page-break-inside:avoid}.c img{width:220px;height:220px}h2{margin:0 0 8px}p{font-size:28px;font-weight:700;margin:8px 0 0}</style><div class="g">${cards}</div>`);
-    w.document.close(); setTimeout(() => w.print(), 400);
-  },
-  async 'r-regen'() {
-    if (!(await ask('Rigenera i codici QR', 'Rigenerare tutti i codici QR? Quelli già stampati smetteranno di funzionare e dovrai stamparli di nuovo.', 'Rigenera', true))) return;
-    await q(sb.rpc('regen_tavoli', { p_rid: rSess() }));
-    await reload(); toast('Codici rigenerati: stampa di nuovo i QR dei tavoli');
-  },
-  'r-settings'() {
-    const r = curRest();
-    openModal('Impostazioni', `
-      <label for="sT">Numero tavoli</label><input id="sT" name="tables" type="number" min="1" max="200" required value="${r.tables}">
-      <label for="sC">Colore del menù cliente</label><input id="sC" name="color" type="color" value="${validColor(r.color)}">
-      <label for="sP">Nuova password (lascia vuoto per non cambiarla)</label><input id="sP" name="password" type="password" minlength="6" autocomplete="new-password">`, async d => {
-      const x = curRest();
-      await q(sb.from('ristorante').update({ n_tavoli: +d.tables, colore: validColor(d.color) }).eq('id', x.id));
-      await q(sb.rpc('ensure_tavoli', { p_rid: x.id }));
-      if (d.password) {
-        const { error } = await sb.auth.updateUser({ password: d.password });
-        if (error) throw new Error(humanError(error));
-      }
-      await reload(); toast('Impostazioni salvate');
-    });
-  },
-  'r-csv'() {
-    const r = curRest();
-    const qt = v => { let s = String(v); if (/^[=+\-@]/.test(s)) s = "'" + s; return `"${s.replace(/"/g, '""')}"`; };
-    const rows = [['N.', 'Data', 'Ora', 'Tavolo', 'Stato', 'Piatti', 'Nota', 'Totale €'],
-      ...db.orders.filter(o => o.rid === r.id).sort((a, b) => a.at - b.at).map(o => [o.n, fdate(o.at), ftime(o.at), o.table, STATUS_LABEL[o.status], o.items.map(i => i.qty + 'x ' + i.name).join(' | '), o.note || '', orderTotal(o).toFixed(2).replace('.', ',')])];
-    download(`ordini-${today()}.csv`, new Blob(['\ufeff' + rows.map(x => x.map(qt).join(';')).join('\n')], { type: 'text/csv;charset=utf-8' }));
-  },
-  'r-logout'() { return doLogout(); },
-
-  /* ---- cliente ---- */
-  'c-help'() { openClient('help'); },
-  'c-filters'() { openClient('filters'); },
-  'c-sheet'() { cBanner = ''; openClient('sheet'); },
-  'c-view'(id) { cDish = id; openClient('dish'); },
-  'c-close'() { cOpen = null; cDish = null; cBanner = ''; refresh(); },
-  'c-reset'() { cTags.clear(); cAvoid.clear(); refresh(); },
-  'c-cat'(n) { document.getElementById('cat-' + n)?.scrollIntoView({ behavior: 'smooth' }); },
-  'c-inc'(id) {
-    const i = CD?.items.find(x => x.id === id);
-    if (!i || i.available === false) return;
-    cart[id] = Math.min(20, (cart[id] || 0) + 1); saveCart(); refresh();
-  },
-  'c-dec'(id) { cart[id] = (cart[id] || 0) - 1; if (cart[id] <= 0) delete cart[id]; saveCart(); refresh(); },
-  async 'c-send'() {
-    const D = CD;
-    if (!D || D.status !== 'ok') { refresh(); return; }
-    const lines = D.items.filter(m => cart[m.id] && m.available !== false);
-    if (!lines.length) return;
-    const tot = round2(lines.reduce((s, i) => s + i.price * cart[i.id], 0));
-    if (!(await ask("Inviare l'ordine?", `Totale <b>${eur(tot)}</b>. Il ristorante lo riceve subito.`, 'Invia ordine'))) return;
-    const { data, error } = await sb.rpc('client_create_order', {
-      p_rid: D.rid, p_num: D.table, p_codice: D.tok,
-      p_items: lines.map(i => ({ id: i.id, qty: cart[i.id] })), p_nota: cartNote.trim().slice(0, 300)
-    });
-    if (error) {
-      toast(/Troppi/i.test(error.message) ? 'Ci sono già diversi ordini in attesa: attendi che vengano presi in carico' : "Non riesco a inviare l'ordine. Riprova.");
-      return;
-    }
-    addMine(data.id);
-    cart = {}; cartNote = ''; saveCart();
-    cBanner = `Ordine #${data.n} inviato. Qui sotto vedi a che punto è.`;
-    await clientSync();
-    refresh();
-  },
-  async 'c-msg'(id) {
-    const D = CD; if (!D) return;
-    const v = $('#msg-' + id)?.value.trim().slice(0, 200);
-    if (!v) return;
-    const { error } = await sb.rpc('client_add_message', { p_rid: D.rid, p_num: D.table, p_codice: D.tok, p_ordine: id, p_testo: v });
-    if (error) { toast('Messaggio non inviato. Riprova.'); return; }
-    await clientSync(); refresh(); toast('Messaggio inviato');
-  },
-  async 'c-call'(type) {
-    const D = CD; if (!D) return;
-    const { error } = await sb.rpc('client_call', { p_rid: D.rid, p_num: D.table, p_codice: D.tok, p_tipo: type });
-    if (error) { toast('Richiesta non inviata. Riprova.'); return; }
-    cOpen = null; await clientSync(); refresh();
-    toast(type === 'conto' ? 'Conto richiesto' : 'Cameriere chiamato');
-  }
+  $('#modal-piatto').classList.remove('hidden');
 };
 
-/* esegue l'azione e mostra eventuali errori */
-document.addEventListener('click', e => {
-  const b = e.target.closest('[data-act]');
-  if (!b || b.disabled) return;
-  const fail = err => { console.error(err); toast(err.message || 'Operazione non riuscita'); };
-  try { const r = actions[b.dataset.act]?.(b.dataset.id); if (r && r.catch) r.catch(fail); }
-  catch (err) { fail(err); }
+window.deletePiatto = async function(id) {
+  if (!confirm('Eliminare questo piatto?')) return;
+  await sb.from('piatti').delete().eq('id', id);
+  await renderMenuTable($('#search-menu')?.value || '');
+  await renderRistDashboard();
+  toast('Piatto eliminato');
+};
+
+// =====================================================
+// ORDINI KANBAN
+// =====================================================
+async function renderOrdiniKanban() {
+  if (!currentRistorante) return;
+  currentRistorante = await loadRistoranteFull(currentRistorante.id);
+  const ordini = currentRistorante.ordini || [];
+
+  const nuovi = ordini.filter(o => o.stato === 'nuovo');
+  const prep = ordini.filter(o => o.stato === 'in_preparazione');
+  const pronti = ordini.filter(o => o.stato === 'pronto' || o.stato === 'consegnato');
+
+  $('#count-nuovo').textContent = nuovi.length;
+  $('#count-prep').textContent = prep.length;
+  $('#count-pronto').textContent = pronti.length;
+
+  function cardHtml(o) {
+    const items = (o.items || []).slice(0, 3).map(i => `${i.qty}× ${i.nome}`).join(', ');
+    const more = (o.items || []).length > 3 ? '...' : '';
+    const ps = o.stato_pagamento || defaultPagStato(o.pagamento);
+    return `
+      <div class="kanban-card stato-${o.stato}" onclick="apriDettaglioOrdine('${o.id}')">
+        <h4>Tavolo ${o.tavolo} · ${formatPrice(o.totale)}</h4>
+        <p>${items}${more}</p>
+        <div class="pag-row">
+          <span style="font-size:11px;color:var(--muted)">${formatTime(o.createdAt)} · #${o.codice}</span>
+          <span class="badge-pag ${ps}">${labelPagamentoStato(ps)}</span>
+        </div>
+      </div>
+    `;
+  }
+
+  $('#kanban-nuovo').innerHTML = nuovi.length ? nuovi.map(cardHtml).join('') : '<p style="color:var(--muted);font-size:13px;text-align:center;padding:20px">Nessun ordine</p>';
+  $('#kanban-prep').innerHTML = prep.length ? prep.map(cardHtml).join('') : '<p style="color:var(--muted);font-size:13px;text-align:center;padding:20px">Nessun ordine</p>';
+  $('#kanban-pronto').innerHTML = pronti.length ? pronti.map(cardHtml).join('') : '<p style="color:var(--muted);font-size:13px;text-align:center;padding:20px">Nessun ordine</p>';
+
+  const badge = $('#badge-ordini');
+  if (nuovi.length > 0) { badge.textContent = nuovi.length; badge.classList.remove('hidden'); }
+  else badge.classList.add('hidden');
+}
+
+window.apriDettaglioOrdine = function(ordineId) {
+  const o = currentRistorante.ordini.find(x => x.id === ordineId);
+  if (!o) return;
+  $('#ordine-detail-title').textContent = `Ordine #${o.codice} – Tavolo ${o.tavolo}`;
+  const itemsHtml = (o.items || []).map(i =>
+    `<div class="r-item"><span>${i.qty}× ${i.nome}</span><span>${formatPrice(i.prezzo * i.qty)}</span></div>`
+  ).join('');
+  const ps = o.stato_pagamento || defaultPagStato(o.pagamento);
+  const metodo = o.pagamento === 'cassa' ? 'Pago in cassa' : (o.pagamento === 'carta' ? 'Carta' : (o.pagamento || '—'));
+  $('#ordine-detail-body').innerHTML = `
+    <div style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <span class="badge-stato ${o.stato}">${labelStato(o.stato)}</span>
+      <span class="badge-pag ${ps}">${labelPagamentoStato(ps)}</span>
+      <span style="color:var(--muted);font-size:13px">${formatTime(o.createdAt)}</span>
+    </div>
+    <div class="ricevuta-items">${itemsHtml}</div>
+    ${o.note ? `<p style="font-size:13px;color:var(--muted);margin:12px 0"><i class="fas fa-sticky-note"></i> ${o.note}</p>` : ''}
+    <p style="font-size:13px;margin:8px 0">Metodo: <strong>${metodo}</strong></p>
+    <div class="ricevuta-totale"><span>Totale</span><strong>${formatPrice(o.totale)}</strong></div>
+  `;
+  let actions = '';
+  if (o.stato === 'nuovo') {
+    actions = `<button class="btn btn-primary" onclick="cambiaStato('${o.id}','in_preparazione')"><i class="fas fa-fire"></i> Inizia preparazione</button>`;
+  } else if (o.stato === 'in_preparazione') {
+    actions = `<button class="btn btn-primary" onclick="cambiaStato('${o.id}','pronto')"><i class="fas fa-check"></i> Segna pronto</button>`;
+  } else if (o.stato === 'pronto') {
+    actions = `<button class="btn btn-primary" onclick="cambiaStato('${o.id}','consegnato')"><i class="fas fa-hand-holding"></i> Consegnato</button>`;
+  }
+  const nextPag = { in_attesa: 'pagato', pagato: 'non_pagato', non_pagato: 'in_attesa' }[ps] || 'pagato';
+  const pagBtnLabel = { pagato: 'Segna pagato', non_pagato: 'Segna non pagato', in_attesa: 'Segna in attesa' }[nextPag];
+  actions += `<button class="btn btn-secondary" onclick="togglePagamento('${o.id}')"><i class="fas fa-money-bill-wave"></i> ${pagBtnLabel}</button>`;
+  if (o.stato !== 'chiuso') {
+    actions += `<button class="btn btn-danger" onclick="chiudiConto('${o.id}')"><i class="fas fa-file-invoice-dollar"></i> Chiudi conto</button>`;
+  }
+  actions += `<button class="btn btn-secondary close-modal" data-modal="modal-ordine">Chiudi</button>`;
+  $('#ordine-detail-actions').innerHTML = actions;
+  $('#ordine-detail-actions .close-modal')?.addEventListener('click', () => $('#modal-ordine').classList.add('hidden'));
+  $('#modal-ordine').classList.remove('hidden');
+};
+
+window.cambiaStato = async function(ordineId, nuovoStato) {
+  await sb.from('ordini').update({ stato: nuovoStato }).eq('id', ordineId);
+  // aggiorna occupato tavolo
+  const o = currentRistorante.ordini.find(x => x.id === ordineId);
+  if (o) {
+    if (nuovoStato === 'consegnato' || nuovoStato === 'chiuso') {
+      await sb.from('tavoli').update({ occupato: false }).eq('id_ristorante', currentRistorante.id).eq('numero', o.tavolo);
+    } else {
+      await sb.from('tavoli').update({ occupato: true }).eq('id_ristorante', currentRistorante.id).eq('numero', o.tavolo);
+    }
+  }
+  $('#modal-ordine').classList.add('hidden');
+  await renderOrdiniKanban();
+  await renderRistDashboard();
+  toast('Stato aggiornato: ' + labelStato(nuovoStato));
+};
+
+window.chiudiConto = async function(ordineId) {
+  if (!confirm('Chiudere il conto di questo ordine?')) return;
+  const o = currentRistorante.ordini.find(x => x.id === ordineId);
+  await sb.from('ordini').update({ stato: 'chiuso', stato_pagamento: 'pagato' }).eq('id', ordineId);
+  if (o) await sb.from('tavoli').update({ occupato: false }).eq('id_ristorante', currentRistorante.id).eq('numero', o.tavolo);
+  $('#modal-ordine').classList.add('hidden');
+  await renderOrdiniKanban();
+  await renderRistDashboard();
+  await renderTavoli();
+  toast('Conto chiuso e segnato come pagato');
+};
+
+window.togglePagamento = async function(ordineId) {
+  const o = currentRistorante.ordini.find(x => x.id === ordineId);
+  if (!o) return;
+  const cur = o.stato_pagamento || defaultPagStato(o.pagamento);
+  const cycle = { in_attesa: 'pagato', pagato: 'non_pagato', non_pagato: 'in_attesa' };
+  const next = cycle[cur] || 'pagato';
+  await sb.from('ordini').update({ stato_pagamento: next }).eq('id', ordineId);
+  await renderOrdiniKanban();
+  await renderRistDashboard();
+  apriDettaglioOrdine(ordineId);
+  toast('Stato pagamento: ' + labelPagamentoStato(next));
+};
+
+// Card navigation
+document.addEventListener('click', (e) => {
+  const card = e.target.closest('.card-tilt');
+  if (!card) return;
+  const goto = card.dataset.goto;
+  const gotoRist = card.dataset.gotoRist;
+  if (goto) {
+    const nav = document.querySelector('#app-admin .nav-item[data-page="' + goto + '"]');
+    if (nav) nav.click();
+  }
+  if (gotoRist) {
+    const nav = document.querySelector('#app-ristoratore .nav-item[data-page="' + gotoRist + '"]');
+    if (nav) nav.click();
+  }
+});
+document.addEventListener('pointermove', (e) => {
+  const card = e.target.closest('.card-tilt');
+  if (!card) return;
+  const r = card.getBoundingClientRect();
+  card.style.setProperty('--mx', ((e.clientX - r.left) / r.width) * 100 + '%');
+  card.style.setProperty('--my', ((e.clientY - r.top) / r.height) * 100 + '%');
 });
 
-document.addEventListener('change', e => {
-  /* "Crea nuova categoria" dentro il form del piatto */
-  if (e.target.id === 'catSel') {
-    const w = $('#newCatWrap'); w.hidden = e.target.value !== '__new__';
-    if (!w.hidden) $('#newCat').focus();
-    return;
+// =====================================================
+// TAVOLI + QR (URL reali)
+// =====================================================
+function qrData(ristoranteId, tavolo) {
+  const base = (cfg.SITE_URL || window.location.origin).replace(/\/$/, '');
+  return `${base}/?r=${ristoranteId}&t=${tavolo}`;
+}
+
+async function renderTavoli() {
+  if (!currentRistorante) return;
+  currentRistorante = await loadRistoranteFull(currentRistorante.id);
+  const sale = currentRistorante.sale || ['Sala principale'];
+  const tavoli = currentRistorante.tavoli || [];
+
+  const tabs = $('#sale-tabs');
+  tabs.innerHTML = sale.map((s, i) =>
+    `<button class="sale-tab ${i === currentSala ? 'active' : ''}" data-sala="${i}">${s}</button>`
+  ).join('');
+  tabs.querySelectorAll('.sale-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      currentSala = parseInt(tab.dataset.sala);
+      renderTavoli();
+    });
+  });
+
+  const salaTavoli = tavoli.filter(t => (t.sala || 0) === currentSala);
+  const piantina = $('#piantina');
+  if (!salaTavoli.length) {
+    piantina.innerHTML = '<p style="color:var(--muted)">Nessun tavolo in questa sala.</p>';
+  } else {
+    piantina.innerHTML = salaTavoli.map(t => {
+      const label = t.bambini ? `${t.adulti}+${t.bambini}` : `${t.adulti}`;
+      return `
+        <div class="tavolo-shape ${t.forma === 'round' ? 'round' : ''} ${t.occupato ? 'occupato' : ''}"
+             onclick="showQR(${t.numero})" title="Tavolo ${t.numero}">
+          <span>T${t.numero}</span>
+          <span class="posti">${label} posti</span>
+        </div>
+      `;
+    }).join('');
   }
-  /* foto scelta dal dispositivo: la riduco e la comprimo (viene caricata su Storage al salvataggio) */
-  if (e.target.id === 'imgFile') {
-    const f = e.target.files[0]; e.target.value = '';
-    if (!f) return;
-    if (!/^image\//.test(f.type)) { toast('Scegli un file immagine'); return; }
-    toast('Sto preparando la foto…');
-    compressImage(f).then(d => {
-      if (!$('#imgVal')) return;                      // la finestra è stata chiusa nel frattempo
-      $('#imgVal').value = d; $('#imgUrl').value = ''; setPrev(d);
-      toast(`Foto pronta (${Math.round(d.length * .75 / 1024)} KB)`);
-    }).catch(() => toast('Non riesco a leggere questa foto. Prova con un altro file'));
-    return;
+
+  const grid = $('#tavoli-grid');
+  grid.innerHTML = '';
+  salaTavoli.forEach(t => {
+    const label = t.bambini ? `${t.adulti} adulti + ${t.bambini} bambini` : `${t.adulti} posti`;
+    const card = document.createElement('div');
+    card.className = 'tavolo-card';
+    card.innerHTML = `
+      <h4>Tavolo ${t.numero} ${t.occupato ? '<span class="badge-stato nuovo">Occupato</span>' : ''}</h4>
+      <div class="posti-info">${label}</div>
+      <div class="qr-mini" id="qr-mini-${t.numero}"></div>
+      <div class="tavolo-actions">
+        <button class="btn btn-secondary btn-sm" onclick="showQR(${t.numero})"><i class="fas fa-qrcode"></i> QR</button>
+        <button class="btn btn-secondary btn-sm" onclick="editTavolo('${t.id}')"><i class="fas fa-edit"></i></button>
+        <button class="btn btn-danger btn-sm" onclick="deleteTavolo('${t.id}')"><i class="fas fa-trash"></i></button>
+      </div>
+    `;
+    grid.appendChild(card);
+    const data = qrData(currentRistorante.id, t.numero);
+    try {
+      new QRCode(card.querySelector(`#qr-mini-${t.numero}`), {
+        text: data, width: 110, height: 110, correctLevel: QRCode.CorrectLevel.M
+      });
+    } catch {
+      card.querySelector(`#qr-mini-${t.numero}`).innerHTML =
+        `<img src="https://api.qrserver.com/v1/create-qr-code/?size=110x110&data=${encodeURIComponent(data)}" alt="QR"/>`;
+    }
+  });
+}
+
+$('#btn-nuova-sala')?.addEventListener('click', async () => {
+  const nome = prompt('Nome nuova sala:');
+  if (!nome || !nome.trim()) return;
+  const sale = [...(currentRistorante.sale || []), nome.trim()];
+  await sb.from('ristoranti').update({ sale }).eq('id', currentRistorante.id);
+  currentRistorante.sale = sale;
+  await renderTavoli();
+  toast('Sala aggiunta');
+});
+
+window.showQR = function(tavolo) {
+  if (!currentRistorante) return;
+  const container = $('#qrcode-container');
+  container.innerHTML = '';
+  const data = qrData(currentRistorante.id, tavolo);
+  $('#modal-qr-title').textContent = `QR Tavolo ${tavolo}`;
+  $('#qr-info').textContent = `${currentRistorante.nome} · Tavolo ${tavolo}`;
+  try {
+    new QRCode(container, { text: data, width: 220, height: 220, correctLevel: QRCode.CorrectLevel.M });
+  } catch {
+    container.innerHTML = `<img src="https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(data)}" alt="QR"/>`;
   }
-  /* foto da link */
-  if (e.target.id === 'imgUrl') {
-    const v = e.target.value.trim(), val = $('#imgVal');
-    if (!val) return;
-    if (!v) { if (!val.value.startsWith('data:')) { val.value = ''; setPrev(''); } return; }
-    if (!/^https?:\/\/\S+$/i.test(v)) { toast('Il link deve iniziare con https://'); return; }
-    val.value = v; setPrev(v);
-    return;
-  }
-  /* filtri del cliente */
-  if (e.target.dataset?.f) {
-    const set = e.target.dataset.f === 'tag' ? cTags : cAvoid;
-    e.target.checked ? set.add(e.target.value) : set.delete(e.target.value);
-    applySearch();
-    return;
-  }
-  /* modifica rapida del prezzo dalla lista del menù */
-  const id = e.target.dataset?.price;
+  $('#modal-qr').classList.remove('hidden');
+};
+
+$('#btn-demo-ristoratore')?.addEventListener('click', async () => {
+  const ristoranti = await loadRistoranti();
+  if (!ristoranti.length) { toast('Crea prima un ristorante'); return; }
+  const sel = $('#demo-ristoratore-select');
+  sel.innerHTML = ristoranti.map(r => `<option value="${r.id}">${r.nome}</option>`).join('');
+  $('#modal-demo-ristoratore').classList.remove('hidden');
+});
+
+$('#btn-avvia-demo-rist')?.addEventListener('click', async () => {
+  const id = $('#demo-ristoratore-select').value;
+  const r = await loadRistoranteFull(id);
+  if (!r) return;
+  currentUser = { role: 'ristoratore', email: r.email, ristoranteId: r.id, fromAdmin: true };
+  currentRistorante = r;
+  $('#modal-demo-ristoratore').classList.add('hidden');
+  $('#app-admin').classList.add('hidden');
+  $('#app-ristoratore').classList.remove('hidden');
+  $('#rist-nome-sidebar').textContent = r.nome + ' (demo)';
+  $('#rist-user-email').textContent = r.email;
+  await renderRistDashboard();
+  await renderMenuTable();
+  await renderOrdiniKanban();
+  await renderTavoli();
+});
+
+$('#btn-nuovo-tavolo')?.addEventListener('click', () => {
+  if (!currentRistorante) return;
+  const maxNum = (currentRistorante.tavoli || []).reduce((m, t) => Math.max(m, t.numero || 0), 0);
+  $('#modal-tavolo-title').textContent = 'Nuovo tavolo';
+  $('#tavolo-edit-id').value = '';
+  $('#tavolo-numero').value = maxNum + 1;
+  $('#tavolo-adulti').value = 4;
+  $('#tavolo-bambini').value = 0;
+  $('#tavolo-forma').value = 'round';
+  $('#modal-tavolo-edit').classList.remove('hidden');
+});
+
+$('#form-tavolo')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!currentRistorante) return;
+  const id = $('#tavolo-edit-id').value;
+  const data = {
+    id_ristorante: currentRistorante.id,
+    numero: parseInt($('#tavolo-numero').value) || 1,
+    adulti: parseInt($('#tavolo-adulti').value) || 4,
+    bambini: parseInt($('#tavolo-bambini').value) || 0,
+    sala: currentSala || 0,
+    forma: $('#tavolo-forma').value || 'round'
+  };
   if (id) {
-    const price = round2(Math.max(0, +e.target.value || 0));
-    e.target.value = price;
-    q(sb.from('piatto').update({ prezzo: price }).eq('id', id)).then(() => {
-      const i = db.menu.find(x => x.id === id); if (i) i.price = price;
-      toast('Prezzo aggiornato');
-    }).catch(err => toast(err.message));
+    await sb.from('tavoli').update(data).eq('id', id);
+    toast('Tavolo aggiornato');
+  } else {
+    data.occupato = false;
+    await sb.from('tavoli').insert(data);
+    toast('Tavolo aggiunto');
+  }
+  $('#modal-tavolo-edit').classList.add('hidden');
+  await renderTavoli();
+});
+
+window.editTavolo = function(id) {
+  const t = currentRistorante.tavoli.find(x => x.id === id);
+  if (!t) return;
+  $('#modal-tavolo-title').textContent = 'Modifica tavolo';
+  $('#tavolo-edit-id').value = t.id;
+  $('#tavolo-numero').value = t.numero;
+  $('#tavolo-adulti').value = t.adulti;
+  $('#tavolo-bambini').value = t.bambini || 0;
+  $('#tavolo-forma').value = t.forma || 'round';
+  $('#modal-tavolo-edit').classList.remove('hidden');
+};
+
+window.deleteTavolo = async function(id) {
+  if (!confirm('Eliminare questo tavolo?')) return;
+  await sb.from('tavoli').delete().eq('id', id);
+  await renderTavoli();
+  toast('Tavolo eliminato');
+};
+
+// =====================================================
+// CLIENTE
+// =====================================================
+function showClienteView(view) {
+  ['cliente-menu-view', 'cliente-carrello-view', 'cliente-ricevuta-view', 'cliente-stato-view'].forEach(id => {
+    $(`#${id}`)?.classList.add('hidden');
+  });
+  $(`#cliente-${view}-view`)?.classList.remove('hidden');
+}
+
+function renderClienteMenu() {
+  if (!currentRistorante) return;
+  const menu = (currentRistorante.menu || []).filter(p => p.disponibile !== false);
+  const cats = ['tutti', ...new Set(menu.map(p => p.categoria).filter(Boolean))];
+  const catEl = $('#cliente-categorie');
+  catEl.innerHTML = cats.map(c =>
+    `<button class="cat-chip ${c === menuFilterCat ? 'active' : ''}" data-cat="${c}">${c === 'tutti' ? 'Tutti' : c}</button>`
+  ).join('');
+  catEl.querySelectorAll('.cat-chip').forEach(chip => {
+    chip.addEventListener('click', () => { menuFilterCat = chip.dataset.cat; renderClienteMenu(); });
+  });
+
+  let filtered = menuFilterCat === 'tutti' ? menu : menu.filter(p => p.categoria === menuFilterCat);
+  const list = $('#cliente-menu-list');
+  if (!filtered.length) {
+    list.innerHTML = '<p style="color:var(--muted);text-align:center;padding:40px">Nessun piatto disponibile.</p>';
+    return;
+  }
+  list.innerHTML = filtered.map(p => {
+    const inCart = cart.find(c => c.id === p.id);
+    const qty = inCart ? inCart.qty : 0;
+    const all = (p.allergeni || []).length ? `<div class="allergeni-tags">⚠ ${(p.allergeni).join(', ')}</div>` : '';
+    return `
+      <div class="menu-item-card">
+        ${p.immagine ? `<img src="${p.immagine}" class="piatto-img" alt="" onerror="this.style.display='none'"/>` : ''}
+        <div class="menu-item-info" style="flex:1">
+          <h4>${p.nome}</h4>
+          ${p.descrizione ? `<p>${p.descrizione}</p>` : ''}
+          <span class="prezzo">${formatPrice(p.prezzo)}</span>
+          ${all}
+        </div>
+        <div class="menu-item-actions">
+          ${qty > 0 ? `
+            <button class="qty-btn" onclick="changeQty('${p.id}',-1)">−</button>
+            <span class="qty-num">${qty}</span>
+            <button class="qty-btn" onclick="changeQty('${p.id}',1)">+</button>
+          ` : `
+            <button class="btn btn-primary btn-sm" onclick="changeQty('${p.id}',1)"><i class="fas fa-plus"></i> Aggiungi</button>
+          `}
+        </div>
+      </div>
+    `;
+  }).join('');
+  updateCartCount();
+}
+
+window.changeQty = function(id, delta) {
+  const p = currentRistorante.menu.find(x => x.id === id);
+  if (!p) return;
+  let item = cart.find(c => c.id === id);
+  if (!item && delta > 0) {
+    cart.push({ id: p.id, nome: p.nome, prezzo: p.prezzo, qty: 1 });
+  } else if (item) {
+    item.qty += delta;
+    if (item.qty <= 0) cart = cart.filter(c => c.id !== id);
+  }
+  renderClienteMenu();
+  if (!$('#cliente-carrello-view').classList.contains('hidden')) renderCarrello();
+};
+
+function updateCartCount() {
+  $('#cart-count').textContent = cart.reduce((s, c) => s + c.qty, 0);
+}
+
+$('#cliente-carrello-btn')?.addEventListener('click', () => {
+  renderCarrello();
+  showClienteView('carrello');
+});
+$('#btn-torna-menu')?.addEventListener('click', () => {
+  showClienteView('menu');
+  renderClienteMenu();
+});
+
+function renderCarrello() {
+  const el = $('#carrello-items');
+  if (!cart.length) {
+    el.innerHTML = '<p style="color:var(--muted);text-align:center">Il carrello è vuoto.</p>';
+    $('#carrello-totale').textContent = formatPrice(0);
+    return;
+  }
+  el.innerHTML = cart.map(c => `
+    <div class="carrello-item">
+      <div>
+        <strong>${c.nome}</strong><br>
+        <small>${formatPrice(c.prezzo)} × ${c.qty}</small>
+      </div>
+      <div class="menu-item-actions">
+        <button class="qty-btn" onclick="changeQty('${c.id}',-1)">−</button>
+        <span class="qty-num">${c.qty}</span>
+        <button class="qty-btn" onclick="changeQty('${c.id}',1)">+</button>
+      </div>
+    </div>
+  `).join('');
+  $('#carrello-totale').textContent = formatPrice(cart.reduce((s, c) => s + c.prezzo * c.qty, 0));
+}
+
+$('#btn-invia-ordine')?.addEventListener('click', async () => {
+  if (!cart.length) { toast('Il carrello è vuoto'); return; }
+  if (!currentRistorante) return;
+
+  const totale = cart.reduce((s, c) => s + c.prezzo * c.qty, 0);
+  const codice = 'ORD-' + Math.random().toString(36).slice(2, 8).toUpperCase();
+  const pagamento = document.querySelector('input[name="pagamento"]:checked')?.value || 'carta';
+  const stato_pagamento = defaultPagStato(pagamento);
+
+  const ordine = {
+    id_ristorante: currentRistorante.id,
+    codice,
+    tavolo: currentUser.tavolo,
+    items: cart.map(c => ({ id: c.id, nome: c.nome, prezzo: c.prezzo, qty: c.qty })),
+    note: $('#ordine-note').value.trim(),
+    pagamento,
+    stato_pagamento,
+    totale,
+    stato: 'nuovo'
+  };
+
+  const { data: inserted, error } = await sb.from('ordini').insert(ordine).select().single();
+  if (error) { toast('Errore invio ordine'); console.error(error); return; }
+
+  await sb.from('tavoli').update({ occupato: true })
+    .eq('id_ristorante', currentRistorante.id)
+    .eq('numero', currentUser.tavolo);
+
+  lastOrdineId = inserted.id;
+
+  $('#ricevuta-codice').textContent = codice;
+  $('#ricevuta-rist').textContent = currentRistorante.nome;
+  $('#ricevuta-tavolo').textContent = currentUser.tavolo;
+  $('#ricevuta-ora').textContent = formatTime(inserted.created_at);
+  $('#ricevuta-pagamento').textContent = pagamento === 'cassa' ? 'Pago in cassa' : 'Carta';
+  $('#ricevuta-totale').textContent = formatPrice(totale);
+  $('#ricevuta-stato').textContent = 'Nuovo';
+  $('#ricevuta-stato').className = 'badge-stato nuovo';
+  if ($('#ricevuta-pag-stato')) {
+    $('#ricevuta-pag-stato').textContent = labelPagamentoStato(stato_pagamento);
+    $('#ricevuta-pag-stato').className = 'badge-pag ' + stato_pagamento;
+  }
+  $('#ricevuta-items').innerHTML = ordine.items.map(i => `
+    <div class="r-item"><span>${i.qty}× ${i.nome}</span><span>${formatPrice(i.prezzo * i.qty)}</span></div>
+  `).join('');
+
+  cart = [];
+  updateCartCount();
+  $('#ordine-note').value = '';
+  showClienteView('ricevuta');
+  $('#cliente-stato-btn').style.display = 'inline-flex';
+  toast('Ordine inviato!');
+});
+
+$('#btn-aggiorna-stato')?.addEventListener('click', async () => {
+  if (!lastOrdineId) return;
+  const { data: o } = await sb.from('ordini').select('*').eq('id', lastOrdineId).single();
+  if (o) {
+    $('#ricevuta-stato').textContent = labelStato(o.stato);
+    $('#ricevuta-stato').className = 'badge-stato ' + o.stato;
+    toast('Stato: ' + labelStato(o.stato));
   }
 });
 
-document.addEventListener('input', e => {
-  if (e.target.id === 'cNote') { cartNote = e.target.value; saveCart(); }
-  if (e.target.id === 'cSearch') { cSearch = e.target.value; applySearch(); }
-  if (e.target.id === 'rSearch') {
-    const qs = e.target.value.trim().toLowerCase();
-    $$('tr[data-s]').forEach(tr => tr.hidden = !!qs && !tr.dataset.s.includes(qs));
-  }
-  if (e.target.id === 'mSearch') {
-    const qs = e.target.value.trim().toLowerCase();
-    $$('.item[data-s]').forEach(it => it.hidden = !!qs && !it.dataset.s.includes(qs));
-    $$('.panel.cat').forEach(p => p.hidden = !!qs && ![...p.querySelectorAll('.item')].some(i => !i.hidden));
+$('#btn-nuovo-ordine')?.addEventListener('click', () => {
+  cart = [];
+  updateCartCount();
+  showClienteView('menu');
+  renderClienteMenu();
+});
+
+$('#cliente-stato-btn')?.addEventListener('click', async () => {
+  if (!lastOrdineId) return;
+  const { data: o } = await sb.from('ordini').select('*').eq('id', lastOrdineId).single();
+  if (!o) return;
+  $('#stato-codice').textContent = o.codice;
+  const steps = ['nuovo', 'in_preparazione', 'pronto', 'consegnato'];
+  const idx = steps.indexOf(o.stato);
+  $('#stato-timeline').innerHTML = steps.map((s, i) => {
+    let cls = '';
+    if (i < idx) cls = 'done';
+    else if (i === idx) cls = 'active';
+    return `<div class="stato-step ${cls}"><div class="dot"></div><span>${labelStato(s)}</span></div>`;
+  }).join('');
+  showClienteView('stato');
+});
+
+$('#btn-torna-da-stato')?.addEventListener('click', () => {
+  showClienteView('menu');
+  renderClienteMenu();
+});
+
+$('#btn-indietro-stato')?.addEventListener('click', () => {
+  if (lastOrdineId) showClienteView('ricevuta');
+  else {
+    showClienteView('menu');
+    renderClienteMenu();
   }
 });
 
-document.addEventListener('keydown', e => {
-  if (e.key !== 'Escape') return;
-  if (!$('#modalBg').hidden) closeModal();
-  else if (cOpen && location.hash.startsWith('#/c/')) { cOpen = null; cDish = null; cBanner = ''; refresh(); }
-});
-
-/* ===== Avvio ===== */
-(async () => {
-  hydrateIcons();
-  try { await initAuth(); } catch (e) { console.error(e); }
-  ready = true;
-  route();
+// =====================================================
+// AVVIO: se c'è ?r=...&t=... apri come cliente (QR)
+// =====================================================
+(async function initFromQR() {
+  const params = new URLSearchParams(window.location.search);
+  const rId = params.get('r');
+  const t = parseInt(params.get('t'));
+  if (rId && t) {
+    const r = await loadRistoranteFull(rId);
+    if (r) {
+      currentUser = { role: 'cliente', ristoranteId: rId, tavolo: t };
+      currentRistorante = r;
+      cart = [];
+      lastOrdineId = null;
+      $('#login-screen').classList.add('hidden');
+      $('#app-cliente').classList.remove('hidden');
+      $('#cliente-rist-nome').textContent = r.nome;
+      $('#cliente-tavolo-num').textContent = t;
+      showClienteView('menu');
+      renderClienteMenu();
+    }
+  }
 })();
